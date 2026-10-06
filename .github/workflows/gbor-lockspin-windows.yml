@@ -1,0 +1,99 @@
+name: GBOR Lock Spin Windows Compile Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'gbor_windows_ci/OriginalLocalServer_R1.14.cs'
+      - '.github/workflows/gbor-lockspin-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and protocol-test server
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Get-Content -Raw 'gbor_windows_ci/OriginalLocalServer_R1.14.cs'
+          Add-Type -TypeDefinition $src -Language CSharp
+
+          $root = Join-Path $env:RUNNER_TEMP 'gbor-root'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          Set-Content -Path (Join-Path $root 'launcher.html') -Value '<html>ok</html>' -Encoding UTF8
+          $port = 18777
+          if (-not [OriginalLocalServer]::Start($root,$port,5000)) {
+            throw "Server failed: $([OriginalLocalServer]::LastError)"
+          }
+          try {
+            $status = Invoke-RestMethod "http://127.0.0.1:$port/status"
+            if ($status.lockSpinActive -ne $false) { throw 'LockSpin should start inactive' }
+            Invoke-WebRequest "http://127.0.0.1:$port/debug/force-lock-spin" -UseBasicParsing | Out-Null
+
+            $ws = [System.Net.WebSockets.ClientWebSocket]::new()
+            $ws.Options.AddSubProtocol('mux')
+            $uri = [Uri]"ws://127.0.0.1:$port/mux"
+            $ws.ConnectAsync($uri,[Threading.CancellationToken]::None).GetAwaiter().GetResult()
+
+            function Send-Cmd([int]$id,[string]$tail='') {
+              $text = [char]$id + $tail
+              $bytes = [Text.Encoding]::UTF8.GetBytes($text)
+              $seg = [ArraySegment[byte]]::new($bytes)
+              $ws.SendAsync($seg,[System.Net.WebSockets.WebSocketMessageType]::Text,$true,[Threading.CancellationToken]::None).GetAwaiter().GetResult()
+            }
+            function Recv-Text() {
+              $buf = New-Object byte[] 131072
+              $ms = New-Object IO.MemoryStream
+              do {
+                $seg = [ArraySegment[byte]]::new($buf)
+                $r = $ws.ReceiveAsync($seg,[Threading.CancellationToken]::None).GetAwaiter().GetResult()
+                if ($r.MessageType -eq [System.Net.WebSockets.WebSocketMessageType]::Close) { throw 'Unexpected WS close' }
+                $ms.Write($buf,0,$r.Count)
+              } while (-not $r.EndOfMessage)
+              [Text.Encoding]::UTF8.GetString($ms.ToArray())
+            }
+
+            Send-Cmd 33
+            Send-Cmd 39
+            Send-Cmd 12
+            Send-Cmd 48
+            $boot = @()
+            1..4 | ForEach-Object { $boot += Recv-Text }
+            if (-not ($boot | Where-Object { [int][char]$_[0] -eq 6 })) { throw 'Bootstrap case6 missing' }
+
+            Send-Cmd 51
+            $trigger = Recv-Text
+            if ([int][char]$trigger[0] -ne 6) { throw 'START did not return case6' }
+            if ($trigger -notmatch 'dv:1;1;1;1;1;1;-1;-1;-1;-1;-1;-1;-1;-1;-1') { throw 'LockSpin dv trigger missing' }
+            if ($trigger -notmatch 'dl:.*;3;o') { throw 'LockSpin initial dl spins=3/init missing' }
+            if ($trigger -notmatch ([regex]::Escape('v,dl:'))) { throw 'LockSpin visual v record missing' }
+
+            Send-Cmd 71 ([char]255 + '1')
+            $r1 = Recv-Text
+            if ($r1 -notmatch 'dl:.*;2') { throw 'First respin did not decrement to 2' }
+
+            Send-Cmd 71 ([char]255 + '1')
+            $r2 = Recv-Text
+            if ($r2 -notmatch 'dv:1;1;1;1;1;1;2;-1;-1;-1;-1;-1;-1;-1;-1') { throw 'New coin not persisted in cell 7' }
+            if ($r2 -notmatch 'dl:.*;3') { throw 'New coin did not reset respins to 3' }
+
+            Send-Cmd 71 ([char]255 + '1'); $null = Recv-Text
+            Send-Cmd 71 ([char]255 + '1'); $null = Recv-Text
+            Send-Cmd 71 ([char]255 + '1'); $end = Recv-Text
+            if ($end -notmatch 'W,800') { throw 'Feature completion win should be 800 cents in deterministic test' }
+            if ($end -notmatch 'dv:-1;-1;-1;-1;-1;-1;-1;-1;-1;-1;-1;-1;-1;-1;-1') { throw 'Feature did not return to inactive plugin state' }
+
+            $final = Invoke-RestMethod "http://127.0.0.1:$port/status"
+            if ($final.win -ne 800) { throw "Unexpected final win $($final.win)" }
+            if ($final.lockSpinActive -ne $false) { throw 'LockSpin should be inactive after completion' }
+            Write-Host 'PASS: compile + 6-coin trigger + 71 respins + reset + completion WIN 800'
+          }
+          finally {
+            try { [OriginalLocalServer]::Stop() } catch {}
+          }
