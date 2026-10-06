@@ -20,15 +20,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Rebuild R1.15 from validated R1.14
+      - name: Assemble exact R1.15 source
         shell: bash
         run: |
           set -euo pipefail
-          git show 408ebb028ba17cca197ef3cdf5a1fd0e02f96bd4:gbor_windows_ci/OriginalLocalServer_R1.14.cs > server.cs
-          perl -pi -e 's/\r$//' server.cs
-          cat gbor_r115_ci/r114_to_r115.patch.part1               gbor_r115_ci/r114_to_r115.patch.part2               gbor_r115_ci/r114_to_r115.patch.part3               gbor_r115_ci/r114_to_r115.patch.part4               gbor_r115_ci/r114_to_r115.patch.part5 > r114_to_r115.patch
-          perl -pi -e 's/\r$//' r114_to_r115.patch
-          git apply --verbose r114_to_r115.patch
+          cat gbor_r115_ci/source.part1 gbor_r115_ci/source.part2 gbor_r115_ci/source.part3 gbor_r115_ci/source.part4 gbor_r115_ci/source.part5 > server.cs
+          actual="$(sha256sum server.cs | awk '{print $1}')"
+          expected="78c51717059550a8fb70265e21fd87fbc51933f20aa0f1b6501dda213c07bcbe"
+          echo "R1.15 SHA256=$actual"
+          test "$actual" = "$expected"
 
       - name: Compile and validate Free Games flow
         shell: powershell
