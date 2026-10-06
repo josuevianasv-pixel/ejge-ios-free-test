@@ -1,0 +1,39 @@
+name: EJGE Live iPhone WebKit Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ejge-live-ios-test.yml'
+      - 'tests/ejge-live-ios-test.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-ios:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      EJGE_TEST_URL: https://goalmania-d1-engine-test.josuevianasv.workers.dev/login
+      EJGE_ARTIFACT_DIR: artifacts/ejge-live-ios
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Playwright WebKit
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps webkit
+      - name: Run live EJGE iPhone test
+        run: node tests/ejge-live-ios-test.mjs
+      - name: Upload report and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ejge-live-ios-results
+          path: artifacts/ejge-live-ios/
+          if-no-files-found: warn
+          retention-days: 7
