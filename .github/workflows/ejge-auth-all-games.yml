@@ -1,0 +1,40 @@
+name: EJGE Authenticated All-Games iPhone Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ejge-auth-all-games.yml'
+      - 'tests/ejge-auth-all-games.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  all-games:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      EJGE_TEST_URL: https://goalmania-d1-engine-test.josuevianasv.workers.dev/login
+      EJGE_USERNAME: ${{ secrets.EJGE_USERNAME }}
+      EJGE_PASSWORD: ${{ secrets.EJGE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Playwright WebKit
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps webkit
+      - name: Run authenticated iPhone tests for all EJGE games
+        run: node tests/ejge-auth-all-games.mjs
+      - name: Upload reports and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ejge-auth-all-games-results
+          path: artifacts/ejge-auth-all-games/
+          if-no-files-found: warn
+          retention-days: 7
