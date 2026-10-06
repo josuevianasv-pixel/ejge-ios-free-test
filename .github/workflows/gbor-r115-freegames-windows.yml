@@ -27,6 +27,7 @@ jobs:
           git show 408ebb028ba17cca197ef3cdf5a1fd0e02f96bd4:gbor_windows_ci/OriginalLocalServer_R1.14.cs > server.cs
           perl -pi -e 's/\r$//' server.cs
           cat gbor_r115_ci/r114_to_r115.patch.part1               gbor_r115_ci/r114_to_r115.patch.part2               gbor_r115_ci/r114_to_r115.patch.part3               gbor_r115_ci/r114_to_r115.patch.part4               gbor_r115_ci/r114_to_r115.patch.part5 > r114_to_r115.patch
+          perl -pi -e 's/\r$//' r114_to_r115.patch
           git apply --verbose r114_to_r115.patch
 
       - name: Compile and validate Free Games flow
