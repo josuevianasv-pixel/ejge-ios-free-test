@@ -25,8 +25,9 @@ jobs:
         run: |
           set -euo pipefail
           cat gbor_r115_ci/source.part1 gbor_r115_ci/source.part2 gbor_r115_ci/source.part3 gbor_r115_ci/source.part4 gbor_r115_ci/source.part5 > server.cs
+          perl -pi -e 's/\r$//' server.cs
           actual="$(sha256sum server.cs | awk '{print $1}')"
-          expected="78c51717059550a8fb70265e21fd87fbc51933f20aa0f1b6501dda213c07bcbe"
+          expected="6c699c2838c23f091341f5098e8cdbab835cb2cdab18c1e321e7f89d14dda89d"
           echo "R1.15 SHA256=$actual"
           test "$actual" = "$expected"
 
