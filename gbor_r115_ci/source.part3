@@ -1,0 +1,69 @@
+("bs,0,1,0"); }
+        // Cash Connection plugin state is mandatory even when the feature is inactive.
+        // The original client clears pluginState before each state update and its
+        // Cash Connection decoder reads it immediately afterwards.
+        AddCashConnectionState(r);
+        if(FreeGamesActive || FreeGamesEnding){
+            r.Add(FreeGamesStateRecord()); r.Add("r,1,5,"+string.Join(",",Stops));
+        } else {
+            r.Add("f,0,0,1,1,0,0,0,0,0,0"); r.Add("r,0,5,"+string.Join(",",Stops));
+        }
+        r.Add("rw,0");
+        return Packet(6,r.ToArray());
+    }
+    static void AddPay(List<string> r,string s,int a,int b,int c){ r.Add(":w,"+s+",3,"+a+",0,0"); r.Add(":w,"+s+",4,"+b+",0,0"); r.Add(":w,"+s+",5,"+c+",0,0"); }
+
+    static void RunInternal(string root,int port){
+        Root=root; Port=port; LogFile=Path.Combine(root,"mux.log");
+        try {
+            File.WriteAllText(LogFile,"Original local client server start"+Environment.NewLine);
+            ClearAllFeatures(); Win=0; ForceLockSpinNext=false; ForceLockSpinCoinNext=false; ForceFreeGamesAwardNext=false; ForceFreeGamesRetriggerNext=false;
+            Listener=new TcpListener(IPAddress.Loopback,Port);
+            Listener.Start();
+            IsRunning=true; LastError=""; Ready.Set();
+            Log("LISTEN http://127.0.0.1:"+Port+"/");
+            while(IsRunning){
+                try {
+                    var c=Listener.AcceptTcpClient();
+                    Task.Run(()=>Handle(c));
+                } catch(SocketException){ if(!IsRunning) break; throw; }
+                  catch(ObjectDisposedException){ if(!IsRunning) break; throw; }
+            }
+        } catch(Exception ex){
+            LastError=ex.GetType().Name+": "+ex.Message;
+            try { Log("SERVERERR "+LastError); } catch {}
+            Ready.Set();
+        } finally {
+            IsRunning=false;
+            try { if(Listener!=null) Listener.Stop(); } catch {}
+            Listener=null;
+            try { Log("SERVER STOP"); } catch {}
+        }
+    }
+    public static bool Start(string root,int port,int timeoutMs){
+        Stop();
+        Ready.Reset(); LastError=""; IsRunning=false;
+        ServerThread=new Thread(()=>RunInternal(root,port));
+        ServerThread.IsBackground=true;
+        ServerThread.Name="BookOfRaOriginalLocalServer";
+        ServerThread.Start();
+        if(!Ready.Wait(timeoutMs)){ LastError="Timeout esperando que el servidor abra el puerto"; return false; }
+        return IsRunning;
+    }
+    public static void Stop(){
+        IsRunning=false;
+        try { if(Listener!=null) Listener.Stop(); } catch {}
+        try { if(ServerThread!=null && ServerThread.IsAlive) ServerThread.Join(1500); } catch {}
+        ServerThread=null;
+    }
+    public static void Run(string root){ RunInternal(root,18777); }
+    static void Handle(TcpClient client){ using(client){ try{ client.ReceiveTimeout=0; client.SendTimeout=30000; var s=client.GetStream(); var head=ReadHeaders(s); if(head==null)return; var lines=head.Split(new[]{"\r\n"},StringSplitOptions.None); if(lines.Length==0)return; var first=lines[0].Split(' '); if(first.Length<2)return; var path=first[1].Split('?')[0]; var h=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase); for(int i=1;i<lines.Length;i++){ int p=lines[i].IndexOf(':'); if(p>0)h[lines[i].Substring(0,p).Trim()]=lines[i].Substring(p+1).Trim(); }
+            if(path=="/mux" && h.ContainsKey("Upgrade") && h["Upgrade"].Equals("websocket",StringComparison.OrdinalIgnoreCase)){ HandleWs(s,h); return; }
+            if(path=="/") { SendFile(s,Path.Combine(Root,"launcher.html"),"text/html; charset=utf-8"); return; }
+            if(path=="/status") { SendText(s,"{\"credit\":"+Credit+",\"spin\":"+Spin+",\"win\":"+Win+",\"lockSpinActive\":"+(LockSpinActive?"true":"false")+",\"lockSpinsLeft\":"+LockSpinsLeft+",\"diamonds\":"+CountDiamonds()+",\"freeGamesActive\":"+(FreeGamesActive?"true":"false")+",\"freeGamesEnding\":"+(FreeGamesEnding?"true":"false")+",\"freeGamesTotal\":"+FreeGamesTotal+",\"freeGamesPlayed\":"+FreeGamesPlayed+",\"freeGamesRemaining\":"+FreeGamesRemaining+",\"expandingSymbol\":\""+FreeExpandingSymbol+"\"}","application/json"); return; }
+            if(path=="/debug/mux") { SendText(s,DebugMux(),"text/plain; charset=utf-8"); return; }
+            if(path=="/debug/force-lockspin") { lock(Sync){ ForceLockSpinNext=true; DeterministicFeatureTest=true; } SendText(s,"{\"ok\":true,\"forceLockSpinNext\":true}","application/json"); return; }
+            if(path=="/debug/force-lockspin-freegames") { lock(Sync){ ForceLockSpinNext=true; ForceFreeGamesAwardNext=true; DeterministicFeatureTest=true; } SendText(s,"{\"ok\":true,\"forceLockSpinNext\":true,\"freeGamesAward\":10}","application/json"); return; }
+            if(path=="/debug/force-lockspin-coin") { lock(Sync){ ForceLockSpinCoinNext=true; } SendText(s,"{\"ok\":true,\"forceLockSpinCoinNext\":true}","application/json"); return; }
+            if(path=="/debug/force-freegames-retrigger") { lock(Sync){ ForceFreeGamesRetriggerNext=true; } SendText(s,"{\"ok\":true,\"forceFreeGamesRetriggerNext\":true}","application/json"); return; }
+            if(path.StartsWith("/native-static/")){ var rel=Uri.UnescapeDataString(path.Substring(1)).Replace('/' , Path.DirectorySeparatorChar); if(rel.Contains("..")){Send404(s);return;} var f=Path.Combine(Root,rel); if(!File.Exists(f) && (f.EndsWith(".png")||f.EndsWith(".jpg"))) f += ".webp"; if(File.Exists(f)){ SendFile(s,f,
