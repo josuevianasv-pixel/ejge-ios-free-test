@@ -34,7 +34,7 @@ function delta(rows,key){
 function stable(rows,label){
   const d={iw:delta(rows,'iw'),ih:delta(rows,'ih'),vvw:delta(rows,'vvw'),vvh:delta(rows,'vvh')};
   console.log('STABILITY', label, d);
-  if(Math.max(...Object.values(d))>3) throw new Error(\`\${label}: viewport oscillation \${JSON.stringify(d)}\`);
+  if(Math.max(...Object.values(d))>3) throw new Error(label + ': viewport oscillation ' + JSON.stringify(d));
   return d;
 }
 
@@ -58,7 +58,7 @@ try{
     has100dvh:html.includes('100dvh'),
     hasSourcePwa:html.includes("searchParams.get('source')==='pwa'")
   };
-  if(sourceResp.status()!==200) throw new Error(\`login HTTP \${sourceResp.status()}\`);
+  if(sourceResp.status()!==200) throw new Error('login HTTP ' + sourceResp.status());
   if(!report.tests.deployedSource.hasHomeKey) throw new Error('deployed login is missing home-screen marker');
   if(!report.tests.deployedSource.has100svh) throw new Error('deployed login is missing 100svh fix');
   if(report.tests.deployedSource.has100dvh) throw new Error('deployed login still contains 100dvh');
