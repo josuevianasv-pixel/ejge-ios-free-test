@@ -1,0 +1,24 @@
+name: GBOR Lock Spin CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'gbor_lockspin_ci/**'
+      - '.github/workflows/gbor-lockspin.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lockspin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify Lock Spin state machine
+        run: python gbor_lockspin_ci/test_lockspin_state.py
