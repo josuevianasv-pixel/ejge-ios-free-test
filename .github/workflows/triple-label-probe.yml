@@ -1,0 +1,27 @@
+name: EJGE Triple Bonus Label Probe
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/triple-label-probe.yml'
+      - 'tests/triple-label-probe.mjs'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      EJGE_TEST_URL: https://goalmania-d1-engine-test.josuevianasv.workers.dev/login
+      EJGE_USERNAME: ${{ secrets.EJGE_USERNAME }}
+      EJGE_PASSWORD: ${{ secrets.EJGE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps webkit
+      - run: node tests/triple-label-probe.mjs
