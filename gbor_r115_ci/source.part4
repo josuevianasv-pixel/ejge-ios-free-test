@@ -1,0 +1,46 @@
+Mime(f)); return; } Log("404 "+path); Send404(s); return; }
+            // The archived Greentube client also requests shared framework assets
+            // with absolute paths such as /com/greentube/... and /sk/greentube/... .
+            // Resolve those exact requests inside the single archived native bundle.
+            if(path.StartsWith("/com/") || path.StartsWith("/sk/")){
+                var decoded=Uri.UnescapeDataString(path.TrimStart('/'));
+                if(decoded.Contains("..") || decoded.Contains("\\")){ Send404(s); return; }
+                var nativeRoot=Path.Combine(Root,"native-static");
+                string[] bundles=Directory.Exists(nativeRoot)?Directory.GetDirectories(nativeRoot):new string[0];
+                if(bundles.Length==1){
+                    var f=Path.Combine(bundles[0],decoded.Replace('/',Path.DirectorySeparatorChar));
+                    if(!File.Exists(f) && (f.EndsWith(".png")||f.EndsWith(".jpg"))) f += ".webp";
+                    if(File.Exists(f)){ SendFile(s,f,Mime(f)); return; }
+                }
+                Log("404 "+path); Send404(s); return;
+            }
+            Send404(s);
+        }catch(Exception ex){ Log("HTTPERR "+ex.GetType().Name+" "+ex.Message); } } }
+    static string DebugMux(){
+        var sb=new StringBuilder();
+        sb.AppendLine("WS="+(WsConnected?"OPEN":"CLOSED")+" BOOTSTRAP="+(BootstrapSent?"YES":"NO")+" LAST_CMD="+LastClientCommand+" CREDIT="+Credit+" SPIN="+Spin+" WIN="+Win+" LOCK="+(LockSpinActive?"ON":"OFF")+" LOCK_END="+(LockSpinEnding?"YES":"NO")+" LOCK_LEFT="+LockSpinsLeft+" DIAMONDS="+CountDiamonds()+" FREE="+(FreeGamesActive?"ON":"OFF")+" FREE_END="+(FreeGamesEnding?"YES":"NO")+" FREE_TOTAL="+FreeGamesTotal+" FREE_PLAYED="+FreeGamesPlayed+" FREE_LEFT="+FreeGamesRemaining+" EXPAND="+FreeExpandingSymbol);
+        if(!string.IsNullOrEmpty(LastUnhandled)) sb.AppendLine("LAST_UNHANDLED="+LastUnhandled);
+        try {
+            if(File.Exists(LogFile)){
+                var lines=File.ReadAllLines(LogFile);
+                int start=Math.Max(0,lines.Length-18);
+                for(int i=start;i<lines.Length;i++){
+                    var line=lines[i];
+                    if(line.Length>260) line=line.Substring(0,260);
+                    sb.AppendLine(line);
+                }
+            }
+        } catch(Exception ex){ sb.AppendLine("DEBUG_READ_ERROR "+ex.GetType().Name); }
+        return sb.ToString();
+    }
+    static string ReadHeaders(NetworkStream s){ var ms=new MemoryStream(); int state=0; while(ms.Length<65536){ int b=s.ReadByte(); if(b<0)return null; ms.WriteByte((byte)b); if(state==0&&b==13)state=1; else if(state==1&&b==10)state=2; else if(state==2&&b==13)state=3; else if(state==3&&b==10)break; else state=0; } return Encoding.ASCII.GetString(ms.ToArray()); }
+    static void SendFile(NetworkStream s,string f,string mime){ var b=File.ReadAllBytes(f); SendBytes(s,b,mime); }
+    static void SendText(NetworkStream s,string t,string mime){ SendBytes(s,Encoding.UTF8.GetBytes(t),mime); }
+    static void SendBytes(NetworkStream s,byte[] b,string mime){ var h=Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Type: "+mime+"\r\nContent-Length: "+b.Length+"\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"); s.Write(h,0,h.Length);s.Write(b,0,b.Length); }
+    static void Send404(NetworkStream s){ var b=Encoding.ASCII.GetBytes("Not found"); var h=Encoding.ASCII.GetBytes("HTTP/1.1 404 Not Found\r\nContent-Length: "+b.Length+"\r\nConnection: close\r\n\r\n");s.Write(h,0,h.Length);s.Write(b,0,b.Length); }
+    static string Mime(string f){ f=f.ToLowerInvariant(); if(f.EndsWith(".js"))return "application/javascript"; if(f.EndsWith(".json"))return "application/json"; if(f.EndsWith(".css"))return "text/css"; if(f.EndsWith(".webp"))return "image/webp"; if(f.EndsWith(".png"))return "image/png"; if(f.EndsWith(".jpg")||f.EndsWith(".jpeg"))return "image/jpeg"; if(f.EndsWith(".mp3"))return "audio/mpeg"; if(f.EndsWith(".ogg"))return "audio/ogg"; if(f.EndsWith(".woff"))return "font/woff"; if(f.EndsWith(".woff2"))return "font/woff2"; return "application/octet-stream"; }
+
+    static void HandleWs(NetworkStream s,Dictionary<string,string> h){ string key=h.ContainsKey("Sec-WebSocket-Key")?h["Sec-WebSocket-Key"]:""; using(var sha=SHA1.Create()){ var accept=Convert.ToBase64String(sha.ComputeHash(Encoding.ASCII.GetBytes(key+"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))); var proto=h.ContainsKey("Sec-WebSocket-Protocol")&&h["Sec-WebSocket-Protocol"].Contains("mux")?"Sec-WebSocket-Protocol: mux\r\n":""; var resp=Encoding.ASCII.GetBytes("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: "+accept+"\r\n"+proto+"\r\n");s.Write(resp,0,resp.Length); }
+        var seen=new List<int>(); bool boot=false; WsConnected=true; BootstrapSent=false; LastClientCommand=-1; LastUnhandled=""; Log("WS OPEN");
+        while(true){ int op; byte[] payload; if(!ReadFrame(s,out op,out payload))break; if(op==8)break; if(op==9){WriteFrame(s,10,payload);continue;} if(op!=1||payload.Length==0)continue; var txt=Encoding.UTF8.GetString(payload); int cmd=(int)txt[0]; LastClientCommand=cmd; seen.Add(cmd); Log("CLIENT cmd="+cmd+" len="+payload.Length);
+            if(!boot && seen.Count>=4 && seen[0]==33 && seen[1]==39 && (seen[2]==7 || seen[2]==12) && seen.Contains(48)){ Log("SKIN_READY cmd=48 entry="+seen[2]); SendTextFrame(s,Packet(8,"0","2.5.5","LOCAL","13275","1.10.25","LOCAL_CASH_CONNECTION")); SendTextFrame(s,Packet(7
