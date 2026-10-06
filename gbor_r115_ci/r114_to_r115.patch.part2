@@ -1,0 +1,65 @@
++    static char FreeSymbolAt(int stop,int rowOffset){
++        int index=(stop+rowOffset)%FreeStrip.Length; if(index<0) index+=FreeStrip.Length; return FreeStrip[index];
++    }
++    static int VisibleGoldenBooks(){
++        int n=0; for(int reel=0;reel<5;reel++) for(int row=-1;row<=1;row++) if(FreeSymbolAt(Stops[reel],row)=='G') n++; return n;
++    }
++    static string FreeGamesPluginRecord(){
++        var parts=new List<string>(); parts.Add(InactiveDiamondValues()); parts.Add("es:"+FreeExpandingSymbol);
++        if(FreeGamesPlayed>0) parts.Add("sp::"+string.Join(":",Stops));
++        return "x,0,"+string.Join(",",parts.ToArray());
++    }
++    static string FreeGamesStateRecord(){
++        return "f,"+FreeGamesTotal+","+FreeGamesPlayed+",1,1,1,"+FreeFeatureWin+","+FreeFeatureWin+","+FreeFeatureWin+",0,0";
++    }
++    static void AdvanceFreeGame(){
++        if(!FreeGamesActive || FreeGamesRemaining<=0) return;
++        FreeGamesRemaining--; FreeGamesPlayed++;
++        bool forceRetrigger=ForceFreeGamesRetriggerNext; ForceFreeGamesRetriggerNext=false;
++        if(forceRetrigger){
++            // Three Golden Books centered on the first three reels for deterministic validation.
++            Stops[0]=9; Stops[1]=9; Stops[2]=9; Stops[3]=5; Stops[4]=5;
++        } else if(DeterministicFeatureTest && FreeGamesPlayed==1){
++            // K is the selected expanding symbol; these stops place K on reels 1/3/5.
++            Stops[0]=5; Stops[1]=0; Stops[2]=5; Stops[3]=1; Stops[4]=5;
++            Log("FREEGAMES EXPANDING symbol="+FreeExpandingSymbol+" stops="+string.Join(",",Stops));
++        } else if(DeterministicFeatureTest){
++            // Stable non-Book stops so the validation run ends predictably.
++            for(int i=0;i<5;i++) Stops[i]=4;
++        } else {
++            lock(LocalRandom){ for(int i=0;i<5;i++) Stops[i]=LocalRandom.Next(160); }
++        }
++        int books=VisibleGoldenBooks();
++        if(books>=3){
++            FreeGamesTotal += 10; FreeGamesRemaining += 10;
++            Log("FREEGAMES RETRIGGER books="+books+" +10 total="+FreeGamesTotal+" remaining="+FreeGamesRemaining);
++        }
++        if(FreeGamesRemaining<=0){
++            FreeGamesRemaining=0; FreeGamesActive=false; FreeGamesEnding=true; Win=LockFeatureWin+FreeFeatureWin;
++            Log("FREEGAMES END played="+FreeGamesPlayed+" win="+Win);
++        } else Log("FREEGAMES SPIN played="+FreeGamesPlayed+" remaining="+FreeGamesRemaining);
++    }
++    static int CountDiamonds(){ int n=0; for(int i=0;i<15;i++) if(DiamondValues[i]>=0 || DiamondValues[i]==10010 || DiamondValues[i]==10025) n++; return n; }
++    static string DiamondValuesRecord(){ return "dv:"+string.Join(";",DiamondValues); }
++    static string DiamondLinkRecord(bool init){
++        var parts=new List<string>();
++        for(int i=0;i<15;i++) parts.Add(DiamondStops[i]+":"+DiamondValues[i]);
++        parts.Add(LockSpinsLeft.ToString());
++        if(init) parts.Add("o");
++        return "dl:"+string.Join(";",parts.ToArray());
++    }
++    static void BeginForcedLockSpin(){
++        ClearLockSpin(); ClearFreeGames(); LockSpinActive=true; LockSpinInitVisual=true; LockSpinsLeft=3;
++        int[] cells=new int[]{0,1,5,6,10,11};
++        int[] vals=ForceFreeGamesAwardNext
++            ? new int[]{10010,1,1,1,1,1}
++            : new int[]{1,2,3,10,20,1};
++        ForceFreeGamesAwardNext=false;
++        for(int i=0;i<cells.Length;i++){
++            DiamondValues[cells[i]]=vals[i]; DiamondStops[cells[i]]=(Spin*7+cells[i]*3)%160;
++            if(vals[i]>=0 && vals[i]<10000) LockFeatureWin += vals[i]*100;
++        }
++        Log("LOCKSPIN START coins=6 spins=3 featureWin="+LockFeatureWin+" freeGames="+CountAwardedFreeGames());
++    }
++    static bool AddOneLockSpinCoin(){
++        for(int i=0;i<15;i++) if(DiamondValues[i]<0){
