@@ -1,0 +1,65 @@
+         return Packet(6,r.ToArray());
+     }
+-    static string BuildDiamondValues(){
+-        var a=new string[15];
+-        for(int i=0;i<15;i++) a[i]=LockValues[i].ToString();
+-        return "dv:"+string.Join(";",a);
+-    }
+-    static string BuildDiamondLink(bool init){
+-        var a=new string[16 + (init?1:0)];
+-        for(int i=0;i<15;i++) a[i]=LockStops[i]+":"+LockValues[i];
+-        a[15]=LockSpinsLeft.ToString();
+-        if(init) a[16]="o";
+-        return "dl:"+string.Join(";",a);
+-    }
+-    static void ResetLockSpin(){
+-        LockSpinActive=false; LockSpinsLeft=0; LockStep=0;
+-        for(int i=0;i<15;i++){ LockValues[i]=-1; LockStops[i]=i; }
+-    }
+-    static void StartLockSpin(){
+-        ResetLockSpin();
+-        LockSpinActive=true; LockSpinsLeft=3; LockStep=0; Win=0;
+-        for(int i=0;i<6;i++){ LockValues[i]=1; LockStops[i]=Stops[i%5]; }
+-        Log("LOCKSPIN START cells=6 spins=3");
+-    }
+-    static void AdvanceLockSpin(){
+-        if(!LockSpinActive) return;
+-        LockStep++;
+-        LockSpinsLeft--;
+-        if(LockStep==2 && LockValues[6]<0){
+-            LockValues[6]=2; LockStops[6]=(Stops[1]+17)%160; LockSpinsLeft=3;
+-            Log("LOCKSPIN NEW_COIN cell=6 value=2 reset=3");
+-        }
+-        if(LockSpinsLeft<=0){
+-            int prize=0; for(int i=0;i<15;i++) if(LockValues[i]>0 && LockValues[i]<10000) prize += LockValues[i]*100;
+-            LockSpinActive=false; Win=prize; Log("LOCKSPIN END win="+Win);
+-        } else Log("LOCKSPIN RESPIN step="+LockStep+" left="+LockSpinsLeft);
+-    }
+     static void AddPay(List<string> r,string s,int a,int b,int c){ r.Add(":w,"+s+",3,"+a+",0,0"); r.Add(":w,"+s+",4,"+b+",0,0"); r.Add(":w,"+s+",5,"+c+",0,0"); }
+ 
+     static void RunInternal(string root,int port){
+         Root=root; Port=port; LogFile=Path.Combine(root,"mux.log");
+         try {
+             File.WriteAllText(LogFile,"Original local client server start"+Environment.NewLine);
+-            ResetLockSpin();
++            ClearAllFeatures(); Win=0; ForceLockSpinNext=false; ForceLockSpinCoinNext=false; ForceFreeGamesAwardNext=false; ForceFreeGamesRetriggerNext=false;
+             Listener=new TcpListener(IPAddress.Loopback,Port);
+             Listener.Start();
+             IsRunning=true; LastError=""; Ready.Set();
+@@ -148,9 +262,12 @@
+     static void Handle(TcpClient client){ using(client){ try{ client.ReceiveTimeout=0; client.SendTimeout=30000; var s=client.GetStream(); var head=ReadHeaders(s); if(head==null)return; var lines=head.Split(new[]{"\r\n"},StringSplitOptions.None); if(lines.Length==0)return; var first=lines[0].Split(' '); if(first.Length<2)return; var path=first[1].Split('?')[0]; var h=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase); for(int i=1;i<lines.Length;i++){ int p=lines[i].IndexOf(':'); if(p>0)h[lines[i].Substring(0,p).Trim()]=lines[i].Substring(p+1).Trim(); }
+             if(path=="/mux" && h.ContainsKey("Upgrade") && h["Upgrade"].Equals("websocket",StringComparison.OrdinalIgnoreCase)){ HandleWs(s,h); return; }
+             if(path=="/") { SendFile(s,Path.Combine(Root,"launcher.html"),"text/html; charset=utf-8"); return; }
+-            if(path=="/status") { SendText(s,"{\"credit\":"+Credit+",\"spin\":"+Spin+",\"win\":"+Win+",\"lockSpinActive\":"+(LockSpinActive?"true":"false")+",\"lockSpinsLeft\":"+LockSpinsLeft+"}","application/json"); return; }
++            if(path=="/status") { SendText(s,"{\"credit\":"+Credit+",\"spin\":"+Spin+",\"win\":"+Win+",\"lockSpinActive\":"+(LockSpinActive?"true":"false")+",\"lockSpinsLeft\":"+LockSpinsLeft+",\"diamonds\":"+CountDiamonds()+",\"freeGamesActive\":"+(FreeGamesActive?"true":"false")+",\"freeGamesEnding\":"+(FreeGamesEnding?"true":"false")+",\"freeGamesTotal\":"+FreeGamesTotal+",\"freeGamesPlayed\":"+FreeGamesPlayed+",\"freeGamesRemaining\":"+FreeGamesRemaining+",\"expandingSymbol\":\""+FreeExpandingSymbol+"\"}","application/json"); return; }
+             if(path=="/debug/mux") { SendText(s,DebugMux(),"text/plain; charset=utf-8"); return; }
+-            if(path=="/debug/force-lock-spin") { ForceLockSpinNext=true; SendText(s,"OK force Lock & Spin on next START","text/plain; charset=utf-8"); return; }
++            if(path=="/debug/force-lockspin") { lock(Sync){ ForceLockSpinNext=true; DeterministicFeatureTest=true; } SendText(s,"{\"ok\":true,\"forceLockSpinNext\":true}","application/json"); return; }
++            if(path=="/debug/force-lockspin-freegames") { lock(Sync){ ForceLockSpinNext=true; ForceFreeGamesAwardNext=true; DeterministicFeatureTest=true; } SendText(s,"{\"ok\":true,\"forceLockSpinNext\":true,\"freeGamesAward\":10}","application/json"); return; }
++            if(path=="/debug/force-lockspin-coin") { lock(Sync){ ForceLockSpinCoinNext=true; } SendText(s,"{\"ok\":true,\"forceLockSpinCoinNext\":true}","application/json"); return; }
++            if(path=="/debug/force-freegames-retrigger") { lock(Sync){ ForceFreeGamesRetriggerNext=true; } SendText(s,"{\"ok\":true,\"forceFreeGamesRetriggerNext\":true}","application/json"); return; }
+             if(path.StartsWith("/native-static/")){ var rel=Uri.UnescapeDataString(path.Substring(1)).Replace('/' , Path.DirectorySeparatorChar); if(rel.Contains("..")){Send404(s);return;} var f=Path.Combine(Root,rel); if(!File.Exists(f) && (f.EndsWith(".png")||f.EndsWith(".jpg"))) f += ".webp"; if(File.Exists(f)){ SendFile(s,f,Mime(f)); return; } Log("404 "+path); Send404(s); return; }
+             // The archived Greentube client also requests shared framework assets
+             // with absolute paths such as /com/greentube/... and /sk/greentube/... .
+@@ -171,7 +288,7 @@
+         }catch(Exception ex){ Log("HTTPERR "+ex.GetType().Name+" "+ex.Message); } } }
