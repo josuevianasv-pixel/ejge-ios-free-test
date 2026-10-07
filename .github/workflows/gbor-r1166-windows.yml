@@ -1,0 +1,23 @@
+name: GBOR R1.16.6 Wild Win Windows Test
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'gbor_r1166_ci/**'
+      - '.github/workflows/gbor-r1166-windows.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and validate
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $src = Get-Content -Raw 'gbor_r1166_ci/R1166ProtocolHarness.cs'
+          Add-Type -TypeDefinition $src -Language CSharp
+          [R1166ProtocolHarness]::Main()
