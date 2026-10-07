@@ -1,0 +1,1 @@
+{"waitforcollect":"0","fastspin":"0","dynamicconsolebuttons":"1","button.gamble.show":"0"}
