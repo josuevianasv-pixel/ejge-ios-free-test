@@ -1,0 +1,31 @@
+name: GBOR R1.16.9 Collect Windows Test
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'gbor_r1169_ci/**'
+      - '.github/workflows/gbor-r1169-collect-windows.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile collect fallback
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $src = Get-Content -Raw 'gbor_r1169_ci/R1169CollectHarness.cs'
+          Add-Type -TypeDefinition $src -Language CSharp
+          [R1169CollectHarness]::Main()
+      - name: Validate launcher state flags
+        shell: powershell
+        run: |
+          $launcher = Get-Content -Raw 'gbor_r1169_ci/launcher-fragment.txt'
+          foreach($needle in @('"waitforcollect":"0"','"fastspin":"0"','"dynamicconsolebuttons":"1"','"button.gamble.show":"0"')){
+            if(-not $launcher.Contains($needle)){ throw "Missing $needle" }
+          }
+          Write-Host 'PASS launcher collect-state flags'
