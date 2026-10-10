@@ -2,7 +2,7 @@ name: MoMo Linux | Public Runner QA
 run-name: MoMo Linux R2 - public runner diagnostics
 on:
   push:
-    branches: [momo-linux-public-runner]
+    branches: [momo-linux-public-runner, main]
     paths:
       - '.github/workflows/momo-linux-public.yml'
       - 'momo-linux/**'
