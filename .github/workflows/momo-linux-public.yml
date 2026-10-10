@@ -1,0 +1,125 @@
+name: MoMo Linux | Public Runner QA
+run-name: MoMo Linux R2 - public runner diagnostics
+on:
+  push:
+    branches: [momo-linux-public-runner, main]
+    paths:
+      - '.github/workflows/momo-linux-public.yml'
+      - 'momo-linux/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  momo-linux:
+    name: Linux VM + optional private game QA
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout public QA-only sources
+        uses: actions/checkout@v4
+      - name: Validate Linux runner and browser
+        run: |
+          set -euo pipefail
+          mkdir -p reports work/source work/extracted
+          {
+            echo "OS=$(uname -s)"
+            echo "Kernel=$(uname -r)"
+            echo "Node=$(node --version)"
+            echo "Python=$(python3 --version)"
+          } | tee reports/runner.txt
+          BROWSER="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          if [ -z "$BROWSER" ]; then
+            echo "ERROR: Chrome/Chromium missing" | tee -a reports/runner.txt
+            exit 1
+          fi
+          echo "Browser=$BROWSER" | tee -a reports/runner.txt
+          "$BROWSER" --version | tee -a reports/runner.txt
+          "$BROWSER" --headless --no-sandbox --disable-gpu --disable-dev-shm-usage --no-first-run \
+            --dump-dom 'data:text/html,<html><body><h1>MOMO_RUNNER_OK</h1></body></html>' \
+            > reports/chrome-smoke.html 2>reports/browser-stderr.txt
+          grep -q 'MOMO_RUNNER_OK' reports/chrome-smoke.html
+          echo "LINUX_RUNNER_AND_HEADLESS_BROWSER_OK" | tee -a reports/runner.txt
+      - name: Securely fetch ZIP from private release (only if token configured)
+        id: source
+        env:
+          GH_TOKEN: ${{ secrets.MOMO_SOURCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "WAITING_PRIVATE_SOURCE: Configure MOMO_SOURCE_TOKEN; NO game source was run" | tee reports/source-status.txt
+            exit 0
+          fi
+          if ! gh release download momo-linux-r2-assets \
+            --repo josuevianasv-pixel/game-capture-agent \
+            --pattern '*zip' --dir work/source --clobber \
+            > reports/gh-download.log 2>&1; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "WAITING_PRIVATE_RELEASE: Upload original approved game ZIP to private release momo-linux-r2-assets" | tee reports/source-status.txt
+            exit 0
+          fi
+          ZIP="$(find work/source -maxdepth 1 -name '*.zip' -type f -print -quit)"
+          if [[ -z "$ZIP" ]]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "WAITING_SOURCE_ZIP: No zip found on private release" | tee reports/source-status.txt
+            exit 0
+          fi
+          unzip -tq "$ZIP" >reports/archive-integrity.txt
+          unzip -q "$ZIP" -d work/extracted
+          ROOT="work/extracted/app/www"
+          if [[ ! -s "$ROOT/engine-local.js" || ! -s "$ROOT/engine-config.js" ]]; then
+            echo "FAILED: Original local engine absent from archive" | tee reports/source-status.txt
+            exit 1
+          fi
+          if [[ -s work/extracted/servidor-linux.js ]]; then
+            echo "visual=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "visual=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "available=true" >> "$GITHUB_OUTPUT"
+          echo "root=$ROOT" >> "$GITHUB_OUTPUT"
+          echo "PRIVATE_SOURCE_FOUND" > reports/source-status.txt
+      - name: Execute original JavaScript engine with fictitious credit
+        if: steps.source.outputs.available == 'true'
+        env:
+          MOMO_SPINS: '1000'
+        run: |
+          set -euo pipefail
+          node momo-linux/engine-qa.js "${{ steps.source.outputs.root }}" reports/engine.json
+          echo "Engine test executed, consult engine.json" >> "$GITHUB_STEP_SUMMARY"
+      - name: Setup headless visual tests
+        if: steps.source.outputs.available == 'true' && steps.source.outputs.visual == 'true'
+        run: |
+          python3 -m pip install --quiet --break-system-packages playwright
+          python3 -m playwright install --with-deps chromium
+      - name: Verify visual boot (no credit, no real money)
+        if: steps.source.outputs.available == 'true' && steps.source.outputs.visual == 'true'
+        run: |
+          python3 momo-linux/visual-probe.py work/extracted reports
+      - name: Explain limits and privacy
+        if: always()
+        run: |
+          {
+            echo "### Mo Mo Mummy Linux public runner QA"
+            echo "- Only test scripts are stored in this public repository."
+            echo "- Proprietary game ZIP is fetched from an authorized PRIVATE release using a secret."
+            echo "- No game binaries, assets, license data or screenshots are uploaded as public artifacts."
+            echo "- Test may pass at runner stage without game source; read source-status.txt."
+            echo "- Tests use fictitious credit only. No hardware, real money, or certified RNG tested."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload ONLY safe public diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: momo-linux-public-runner-report
+          path: |
+            reports/runner.txt
+            reports/source-status.txt
+            reports/archive-integrity.txt
+            reports/engine.json
+            reports/visual.json
+          if-no-files-found: warn
+          retention-days: 5
