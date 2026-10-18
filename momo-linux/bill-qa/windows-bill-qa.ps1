@@ -155,6 +155,55 @@ Add-Result "whole_server_csharp_compile" {
   $out=& $ps -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $validator -RootDir $RootDir 2>&1
   Assert-QA ($LASTEXITCODE -eq 0) ("Compilacion integral fallo: "+(($out|Out-String).Trim()))
 }
+# The private E2E script uses Invoke-WebRequest on Windows PowerShell 5.1.
+# On non-2xx replies its error body may already be consumed before the catch
+# reads it. Replace ONLY the HTTP transport in the ephemeral test copy.
+$qaRunnerFile=Join-Path $RootDir "TEST-BILLETERO-VIRTUAL-DURABILIDAD-PUBLIC-RUNNER.ps1"
+function Prepare-QARunnerScript {
+  $original=Get-Content -LiteralPath $qaFile -Raw -Encoding UTF8
+  $begin=$original.IndexOf('function Api(')
+  $end=$original.IndexOf('function Assert(',[Math]::Max(0,$begin))
+  Assert-QA ($begin -ge 0 -and $end -gt $begin) "Helper HTTP privado ausente; no se modifica la prueba"
+  $transport=@'
+function Api([string]$method,[string]$path,[hashtable]$body=@{}){
+  $req=[System.Net.HttpWebRequest][System.Net.WebRequest]::Create(($base+$path))
+  $req.Method=$method
+  $req.Timeout=10000
+  $req.Proxy=$null
+  $req.KeepAlive=$false
+  if($method -eq 'POST'){
+    $payload=[Text.Encoding]::UTF8.GetBytes(($body|ConvertTo-Json -Depth 7 -Compress))
+    $req.ContentType='application/json'
+    $req.ContentLength=$payload.Length
+    $w=$req.GetRequestStream()
+    try{$w.Write($payload,0,$payload.Length)}finally{$w.Dispose()}
+  }
+  $resp=$null
+  try{$resp=[System.Net.HttpWebResponse]$req.GetResponse()}
+  catch [System.Net.WebException]{
+    $resp=$_.Exception.Response
+    if($null -eq $resp){throw}
+  }
+  try{
+    $code=[int]$resp.StatusCode
+    $reader=New-Object IO.StreamReader($resp.GetResponseStream())
+    try{$raw=$reader.ReadToEnd()}finally{$reader.Dispose()}
+    if([string]::IsNullOrWhiteSpace($raw)){
+      throw ("HTTP "+$code+" BODY_EMPTY at "+$path+"; cannot prove persisted bill outcome")
+    }
+    try{$obj=ConvertFrom-Json -InputObject $raw}
+    catch{throw ("HTTP "+$code+" NON_JSON_RESPONSE at "+$path)}
+    return @{http=$code;body=$obj}
+  }finally{if($null -ne $resp){$resp.Dispose()}}
+}
+'@
+  $patched=$original.Substring(0,$begin)+$transport+[Environment]::NewLine+$original.Substring($end)
+  Set-Content -LiteralPath $qaRunnerFile -Value $patched -Encoding UTF8
+  $tokens=$null;$errors=$null
+  [void][System.Management.Automation.Language.Parser]::ParseFile($qaRunnerFile,[ref]$tokens,[ref]$errors)
+  Assert-QA ($errors.Count -eq 0) "Sintaxis invalida del helper HTTP Windows"
+}
+
 $serverProcess=$null
 function Stop-Server {
   if($script:serverProcess){
@@ -184,14 +233,15 @@ if($failCount -eq 0){
     $env:MME5_QA_BILL_STORAGE_FAULT="YES"
     Add-Result "http_disk_failure_and_recovery" {
       Assert-QA (Test-Path $qaFile) "Script E2E original ausente"
+      Prepare-QARunnerScript
       Start-Server
-      & $qaFile -Fase FalloYRecuperacion -Puerto $Port -ConfirmoLaboratorioSinDineroReal
+      & $qaRunnerFile -Fase FalloYRecuperacion -Puerto $Port -ConfirmoLaboratorioSinDineroReal
     }
     if($failCount -eq 0){
       Add-Result "http_same_id_after_server_restart" {
         Stop-Server
         Start-Server
-        & $qaFile -Fase DespuesDeReinicio -Puerto $Port -ConfirmoLaboratorioSinDineroReal
+        & $qaRunnerFile -Fase DespuesDeReinicio -Puerto $Port -ConfirmoLaboratorioSinDineroReal
       }
     }
   }finally{Stop-Server}
