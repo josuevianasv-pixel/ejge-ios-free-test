@@ -41,6 +41,16 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or -not $version) { throw 'Windows PowerShell 5.1 unavailable' }
           "WINDOWS_RUNNER_READY; PowerShell=$version" | Set-Content reports/source-status.txt
           Write-Host "Windows runner ready"
+      - name: Validate public PowerShell QA script syntax
+        run: |
+          $script='momo-linux/bill-qa/windows-bill-qa.ps1'
+          $tokens=$null; $errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $script).Path,[ref]$tokens,[ref]$errors)
+          if($errors.Count -ne 0){
+            $msg=($errors | ForEach-Object {$_.Message}) -join '; '
+            throw "QA script syntax invalid: $msg"
+          }
+          Write-Host "PUBLIC_QA_SCRIPT_SYNTAX_OK"
       - name: Fetch original lab ZIP from a PRIVATE GitHub release
         id: source
         env:
