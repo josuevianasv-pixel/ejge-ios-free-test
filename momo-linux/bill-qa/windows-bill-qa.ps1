@@ -408,6 +408,82 @@ if($failCount -eq 0){
         Assert-QA ($ack.http -eq 200 -and $ack.body.acked -eq $true) "ACK no idempotente despues de reinicio del servidor"
       }
     }
+    function Credit-VirtualViaHttp([double]$amount,[bool]$ackNow){
+      [void](Qa-Http "POST" "/__local/billacceptor/desired" @{accept=$true;reason="QA_LAB_BASE_IDLE"})
+      $insert=Qa-Http "POST" "/__local/billacceptor/virtual/insert" @{amount=$amount}
+      Assert-QA ($insert.http -eq 200 -and $insert.body.ok -eq $true) ("No insertó denominación "+$amount)
+      $id=[string]$insert.body.id
+      Assert-QA (-not [string]::IsNullOrWhiteSpace($id)) "Falta ID de billete virtual"
+      $status=(Qa-Http "GET" "/__local/billacceptor/status").body
+      Assert-QA (@($status.recentBills|Where-Object {$_.id -eq $id}).Count -eq 1) "No aparece billete pendiente"
+      $account=(Qa-Http "GET" "/__local/accounting/state").body.state
+      Assert-QA (@($account.events|Where-Object {$_.txId -eq $id -and $_.event -eq "BILL_ACCEPTED"}).Count -eq 1) "Bill-In ausente o duplicado"
+      $old=(Qa-Http "GET" "/__local/runtime/state").body.state
+      $oldBal=[double]$old.balance
+      $existing=@($old.processedBills|Where-Object {$_})
+      Assert-QA ($existing -notcontains $id) "ID ya acreditado antes de enviar"
+      $snap=@{}
+      foreach($p in $old.PSObject.Properties){$snap[$p.Name]=$p.Value}
+      $snap["schema"]="EJGE_RUNTIME_STATE_V1"
+      $snap["version"]=2
+      $snap["revision"]=[long]$old.revision+1
+      $snap["reason"]="BILL_CREDIT"
+      $snap["balance"]=[Math]::Round($oldBal+$amount,2)
+      $snap["processedBills"]=@($existing)+@($id)
+      $saved=Qa-Http "POST" "/__local/runtime/state" $snap
+      Assert-QA ($saved.http -eq 200 -and $saved.body.saved -eq $true) "Servidor rechazó acreditación por ID único"
+      if($ackNow){
+        $ack=Qa-Http "POST" "/__local/billacceptor/ack" @{id=$id}
+        Assert-QA ($ack.http -eq 200 -and $ack.body.acked -eq $true) "ACK no confirmado tras crédito"
+      }
+      return @{id=$id;amount=$amount;previous=$oldBal;expected=[Math]::Round($oldBal+$amount,2)}
+    }
+    if($failCount -eq 0){
+      Add-Result "http_two_denominations_bill_in_balance_ack" {
+        $initial=(Qa-Http "GET" "/__local/runtime/state").body.state
+        Assert-QA ([Math]::Abs(([double]$initial.balance)-5.0) -lt 0.005) "Se esperaba saldo de $5 de la prueba previa"
+        $notes=New-Object System.Collections.ArrayList
+        foreach($amt in @(1.0,10.0)){
+          $bill=Credit-VirtualViaHttp $amt $true
+          [void]$notes.Add($bill)
+          $rt=(Qa-Http "GET" "/__local/runtime/state").body.state
+          Assert-QA ([Math]::Abs(([double]$rt.balance)-$bill.expected) -lt 0.005) "Saldo no coincide tras crédito"
+          Assert-QA (@($rt.processedBills|Where-Object {$_ -eq $bill.id}).Count -eq 1) "ID ausente del saldo duradero"
+        }
+        $acct=(Qa-Http "GET" "/__local/accounting/state").body.state
+        Assert-QA ([Math]::Abs(([double]$acct.lifetime.billIn)-16.0) -lt 0.005) "Bill-In acumulado distinto a $16"
+        foreach($bill in $notes){
+          Assert-QA (@($acct.events|Where-Object {$_.txId -eq $bill.id -and $_.event -eq "BILL_ACCEPTED"}).Count -eq 1) "Bill-In repetido"
+        }
+        for($q=0;$q -lt 3;$q++){[void](Qa-Http "GET" "/__local/billacceptor/status")}
+        $final=(Qa-Http "GET" "/__local/accounting/state").body.state
+        Assert-QA ([Math]::Abs(([double]$final.lifetime.billIn)-16.0) -lt 0.005) "Consulta de estado duplicó Bill-In"
+      }
+    }
+    if($failCount -eq 0){
+      Add-Result "http_lost_ack_response_restart_recovers_20" {
+        $bill=Credit-VirtualViaHttp 20.0 $false
+        $id=[string]$bill.id
+        Assert-QA ([Math]::Abs($bill.expected-36.0) -lt 0.005) "Saldo base inesperado"
+        # Crash point: runtime was persisted but native ACK has NOT been called.
+        Stop-Server
+        Start-Server
+        $v=(Qa-Http "POST" "/__local/billacceptor/virtual/config" @{enabled=$true;protocol="EBDS"}).body
+        Assert-QA ($v.virtualEnabled -eq $true) "No abrió emulador después de reiniciar"
+        $status=(Qa-Http "GET" "/__local/billacceptor/status").body
+        $rows=@($status.recentBills|Where-Object {$_.id -eq $id})
+        Assert-QA ($rows.Count -eq 1) "ID perdido tras caída antes del ACK"
+        Assert-QA ($rows[0].acked -eq $true) "Servidor no reconstruyó ACK desde saldos y Bill-In duraderos"
+        $runtime=(Qa-Http "GET" "/__local/runtime/state").body.state
+        Assert-QA ([Math]::Abs(([double]$runtime.balance)-36.0) -lt 0.005) "Saldo cambiado durante reinicio"
+        Assert-QA (@($runtime.processedBills|Where-Object {$_ -eq $id}).Count -eq 1) "ID no se conserva exactamente una vez"
+        $acct=(Qa-Http "GET" "/__local/accounting/state").body.state
+        Assert-QA ([Math]::Abs(([double]$acct.lifetime.billIn)-36.0) -lt 0.005) "Bill-In acumulado duplicado"
+        Assert-QA (@($acct.events|Where-Object {$_.txId -eq $id -and $_.event -eq "BILL_ACCEPTED"}).Count -eq 1) "Bill-In de $20 duplicado"
+        $ack=Qa-Http "POST" "/__local/billacceptor/ack" @{id=$id}
+        Assert-QA ($ack.http -eq 200 -and $ack.body.acked -eq $true) "ACK después de recuperación no es idempotente"
+      }
+    }
   }finally{Stop-Server}
 }
 $report=[ordered]@{
