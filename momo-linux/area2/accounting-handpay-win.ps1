@@ -203,6 +203,26 @@ try{
       }
     }
   }
+  if($script:fail -eq 0){
+    Test "rejected_stale_handpay_must_not_add_phantom_cashout" {
+      $hp=Read-Handpay
+      $before=Read-Accounting
+      $prior=[double]$before.lifetime.cashOut
+      $priorCount=[int]$before.lifetime.handpayCount
+      $fake="QA2-STALE-"+[Guid]::NewGuid().ToString("N")
+      $stale=@{version="EJGE_HANDPAY_V1";revision=[long]$hp.revision;
+        status="PENDING";pending=$true;id=$fake;amount=7.0;
+        requestedAt=(Get-Date).ToUniversalTime().ToString("o");machineId="QA2-LAB";source="CABINET_KEY"}
+      $rejected=Post-Handpay $stale
+      Ensure ($rejected.body.saved -eq $false) "La solicitud obsoleta no fue rechazada"
+      $after=Read-Accounting
+      Ensure (Near ([double]$after.lifetime.cashOut) $prior) "CRITICAL: solicitud rechazada agregó Cash Out ficticio"
+      Ensure ([int]$after.lifetime.handpayCount -eq $priorCount) "CRITICAL: solicitud rechazada incrementó handpayCount"
+      Ensure (@($after.cashoutTransactions|Where-Object {$_ -eq $fake}).Count -eq 0) "CRITICAL: ID de pago ficticio entró en contabilidad"
+      $unchanged=Read-Handpay
+      Ensure ($unchanged.id -eq $hp.id -and $unchanged.status -eq $hp.status) "Solicitud obsoleta sobrescribió estado de handpay"
+    }
+  }
   # Negative security test: same WIN cannot be applied again with a higher revision.
   # Run it LAST, because a vulnerable implementation may actually mutate the
   # virtual balance, and we must never interpret that as a passing test.
