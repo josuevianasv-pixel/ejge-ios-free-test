@@ -86,5 +86,13 @@ $gate=@'
             }
 '@
 $s=$s.Substring(0,$writeAt)+$gate+[Environment]::NewLine+$s.Substring($writeAt)
+# A stale POST /__local/handpay/state used to book a CASH_OUT even when
+# SaveHandpayIfNewer() had rejected it. Only a durable accepted handpay
+# request is allowed to update the accounting aggregate.
+$unsafe='if((hpStatus=="PENDING"||hpStatus=="CLEAR_AUTHORIZED")&&!String.IsNullOrWhiteSpace(hpId)&&hpAmount>0)'
+$safe='if(saved && (hpStatus=="PENDING"||hpStatus=="CLEAR_AUTHORIZED")&&!String.IsNullOrWhiteSpace(hpId)&&hpAmount>0)'
+if(!$s.Contains($unsafe)){throw "Stale handpay accounting anchor absent; refuse patch"}
+if($s.IndexOf($unsafe) -ne $s.LastIndexOf($unsafe)){throw "Stale handpay accounting anchor repeated; refuse patch"}
+$s=$s.Replace($unsafe,$safe)
 Set-Content -LiteralPath $server -Value $s -Encoding UTF8
 Write-Host "AREA2_LAB_CANDIDATE_APPLIED: pre-counted handpay id matches authorized pending transaction"
