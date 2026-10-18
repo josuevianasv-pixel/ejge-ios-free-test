@@ -198,6 +198,9 @@ function Api([string]$method,[string]$path,[hashtable]$body=@{}){
 }
 '@
   $patched=$original.Substring(0,$begin)+$transport+[Environment]::NewLine+$original.Substring($end)
+  # ConvertFrom-Json on Windows PowerShell 5.1 produces a PSCustomObject;
+  # assigning a NEW field directly throws. Keep all monetary assertions unchanged.
+  $patched=$patched.Replace('$prev.verifiedAt=(Get-Date).ToString(''o'')', '$prev | Add-Member -NotePropertyName verifiedAt -NotePropertyValue ((Get-Date).ToString(''o'')) -Force')
   Set-Content -LiteralPath $qaRunnerFile -Value $patched -Encoding UTF8
   $tokens=$null;$errors=$null
   [void][System.Management.Automation.Language.Parser]::ParseFile($qaRunnerFile,[ref]$tokens,[ref]$errors)
