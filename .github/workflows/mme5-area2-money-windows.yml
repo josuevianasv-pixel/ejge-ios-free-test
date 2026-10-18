@@ -96,6 +96,12 @@ jobs:
           $root | Set-Content reports/source-root.txt
           "PRIVATE_SOURCE_READY: extracted to ephemeral Windows runner, not published" | Set-Content reports/source-status.txt
           Write-Host "Private lab source is present; no assets will be uploaded."
+      - name: Apply lab-only Area 2 candidate (original Release unchanged)
+        run: |
+          $root=(Get-Content reports/source-root.txt -Raw).Trim()
+          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File momo-linux/area2/apply-candidate.ps1 -RootDir $root
+          if($LASTEXITCODE -ne 0){throw "Candidate source cannot be safely applied"}
+          "CANDIDATE_ONLY: handpay pre-count patch applied only in temporary Windows runner" | Add-Content reports/source-status.txt
       - name: Compile ORIGINAL C# and execute native + HTTP emulation tests
         run: |
           $root=(Get-Content reports/source-root.txt -Raw).Trim()
