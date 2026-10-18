@@ -22,9 +22,10 @@ function Test([string]$name,[scriptblock]$action){
     Write-Host "FAIL $name : $detail"
   }
 }
-function Http([string]$method,[string]$path,[hashtable]$payload=@{}){
+function Http([string]$method,[string]$path,[hashtable]$payload=@{},[hashtable]$headers=@{}){
   $request=[System.Net.HttpWebRequest][System.Net.WebRequest]::Create(("http://127.0.0.1:"+$Port+$path))
   $request.Method=$method;$request.Timeout=10000;$request.KeepAlive=$false;$request.Proxy=$null
+  foreach($key in $headers.Keys){$request.Headers[[string]$key]=[string]$headers[$key]}
   if($method -eq "POST"){
     $bytes=[Text.Encoding]::UTF8.GetBytes(($payload|ConvertTo-Json -Depth 24 -Compress))
     $request.ContentType="application/json";$request.ContentLength=$bytes.Length
@@ -221,6 +222,32 @@ try{
       Ensure (@($after.cashoutTransactions|Where-Object {$_ -eq $fake}).Count -eq 0) "CRITICAL: ID de pago ficticio entró en contabilidad"
       $unchanged=Read-Handpay
       Ensure ($unchanged.id -eq $hp.id -and $unchanged.status -eq $hp.status) "Solicitud obsoleta sobrescribió estado de handpay"
+    }
+  }
+  if($script:fail -eq 0){
+    Test "accounting_compare_and_swap_rejects_stale_writer" {
+      $before=Read-Accounting
+      $base=[long]$before.revision
+      Ensure ($base -gt 0) "Revisión contable base ausente"
+      $cash=[double]$before.lifetime.cashOut
+      $bill=[double]$before.lifetime.billIn
+      $first=Clone-State $before
+      $first["revision"]=$base+1
+      $first["qaCasProbe"]="WRITER_A"
+      $noHeader=Http "POST" "/__local/accounting/state" $first
+      Ensure ($noHeader.status -eq 428 -and $noHeader.body.error -eq "ACCOUNTING_BASE_REVISION_REQUIRED") "Falta protección de cabecera de base"
+      $win=Http "POST" "/__local/accounting/state" $first @{"X-MM-Base-Revision"="$base"}
+      Ensure ($win.status -eq 200 -and $win.body.saved -eq $true) "Primer escritor no confirmó guardado"
+      $second=Clone-State $before
+      $second["revision"]=$base+2
+      $second["qaCasProbe"]="WRITER_B_STALE"
+      $stale=Http "POST" "/__local/accounting/state" $second @{"X-MM-Base-Revision"="$base"}
+      Ensure ($stale.status -eq 409 -and $stale.body.saved -eq $false) "Segundo escritor obsoleto sobrescribió contabilidad"
+      $latest=Read-Accounting
+      Ensure ([long]$latest.revision -eq $base+1) "Revisión de contabilidad cambió con escritor rechazado"
+      Ensure ($latest.qaCasProbe -eq "WRITER_A") "Escritor obsoleto borró la versión guardada"
+      Ensure (Near ([double]$latest.lifetime.cashOut) $cash) "Coincidencia monetaria perdida por CAS"
+      Ensure (Near ([double]$latest.lifetime.billIn) $bill) "Bill-In alterado por concurrencia"
     }
   }
   # Negative security test: same WIN cannot be applied again with a higher revision.
