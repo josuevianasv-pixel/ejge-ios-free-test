@@ -484,6 +484,58 @@ if($failCount -eq 0){
         Assert-QA ($ack.http -eq 200 -and $ack.body.acked -eq $true) "ACK después de recuperación no es idempotente"
       }
     }
+    if($failCount -eq 0){
+      Add-Result "http_60_bill_credits_mixed_restart_replay_checks" {
+        $values=@(1.0,5.0,10.0,20.0)
+        $ids=New-Object System.Collections.ArrayList
+        $expected=36.0
+        $expectedBillIn=36.0
+        for($i=0;$i -lt 60;$i++){
+          if($i -gt 0 -and ($i % 15) -eq 0){
+            Stop-Server
+            Start-Server
+            $cfg=(Qa-Http "POST" "/__local/billacceptor/virtual/config" @{enabled=$true;protocol="EBDS"}).body
+            Assert-QA ($cfg.virtualEnabled -eq $true) "Emulador no restaurado durante carga"
+          }
+          $amount=[double]$values[$i % $values.Count]
+          $bill=Credit-VirtualViaHttp $amount $true
+          Assert-QA (-not $ids.Contains($bill.id)) ("ID repetido, billete "+$i)
+          [void]$ids.Add($bill.id)
+          $expected=[Math]::Round($expected+$amount,2)
+          $expectedBillIn=[Math]::Round($expectedBillIn+$amount,2)
+          Assert-QA ([Math]::Abs($bill.expected-$expected) -lt 0.005) ("Monto incorrecto, billete "+$i)
+          if(($i % 10) -eq 9){
+            $st=(Qa-Http "GET" "/__local/runtime/state").body.state
+            Assert-QA ([Math]::Abs(([double]$st.balance)-$expected) -lt 0.005) ("Saldo incorrecto, grupo "+$i)
+            $ac=(Qa-Http "GET" "/__local/accounting/state").body.state
+            Assert-QA ([Math]::Abs(([double]$ac.lifetime.billIn)-$expectedBillIn) -lt 0.005) ("Bill-In incorrecto, grupo "+$i)
+            Assert-QA (@($st.processedBills|Where-Object {$_}).Count -ge $ids.Count+4) "Se perdieron identificadores procesados"
+          }
+        }
+        Stop-Server
+        Start-Server
+        $virtual=(Qa-Http "POST" "/__local/billacceptor/virtual/config" @{enabled=$true;protocol="EBDS"}).body
+        Assert-QA ($virtual.virtualEnabled -eq $true) "Emulador no reabre después de última caída"
+        $st=(Qa-Http "GET" "/__local/runtime/state").body.state
+        $acct=(Qa-Http "GET" "/__local/accounting/state").body.state
+        Assert-QA ([Math]::Abs(([double]$st.balance)-$expected) -lt 0.005) "Saldo acumulado cambió al reiniciar"
+        Assert-QA ([Math]::Abs(([double]$acct.lifetime.billIn)-$expectedBillIn) -lt 0.005) "Bill-In cambió al reiniciar"
+        foreach($id in $ids){
+          Assert-QA (@($st.processedBills|Where-Object {$_ -eq $id}).Count -eq 1) "Falta o sobra ID procesado"
+          Assert-QA (@($acct.events|Where-Object {$_.txId -eq $id -and $_.event -eq "BILL_ACCEPTED"}).Count -eq 1) "Bill-In duplicado o perdido"
+        }
+        $last=[string]$ids[$ids.Count-1]
+        $bad=@{}
+        foreach($p in $st.PSObject.Properties){$bad[$p.Name]=$p.Value}
+        $bad["revision"]=[long]$st.revision+1
+        $bad["reason"]="BILL_CREDIT"
+        $bad["balance"]=[Math]::Round($expected+20,2)
+        $duplicate=Qa-Http "POST" "/__local/runtime/state" $bad
+        Assert-QA ($duplicate.body.saved -ne $true) "Se volvió a acreditar sin introducir un nuevo ID"
+        $after=(Qa-Http "GET" "/__local/runtime/state").body.state
+        Assert-QA ([Math]::Abs(([double]$after.balance)-$expected) -lt 0.005) "Saldo duplicado después de reintento"
+      }
+    }
   }finally{Stop-Server}
 }
 $report=[ordered]@{
