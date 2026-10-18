@@ -51,8 +51,12 @@ $new=@'
                     return new Dictionary<string,object>{{"ok",false},{"error","CASHOUT_PRECOUNT_PROOF_MISSING"}};
             }
 '@
-if($s.IndexOf($old,[StringComparison]::Ordinal) -lt 0){throw "Baseline candidate anchor changed: refuse patch"}
-if($s.IndexOf($old,[StringComparison]::Ordinal) -ne $s.LastIndexOf($old,[StringComparison]::Ordinal)){throw "Multiple anchors: refuse patch"}
-$s=$s.Replace($old,$new)
+$startMarker="            // Older installations may have an accounting entry without a new"
+$endMarker='                return new Dictionary<string,object>{{"ok",false},{"error","HANDPAY_AUTHORIZATION_REQUIRED"}};'
+$start=$s.IndexOf($startMarker,[StringComparison]::Ordinal)
+$end=if($start -ge 0){$s.IndexOf($endMarker,$start,[StringComparison]::Ordinal)}else{-1}
+if($start -lt 0 -or $end -lt 0){throw "Baseline candidate anchors not found: refusing patch"}
+if($s.LastIndexOf($startMarker,[StringComparison]::Ordinal) -ne $start){throw "Multiple anchors: refusing patch"}
+$s=$s.Substring(0,$start)+$new+$s.Substring($end+$endMarker.Length)
 Set-Content -LiteralPath $server -Value $s -Encoding UTF8
 Write-Host "AREA2_LAB_CANDIDATE_APPLIED: pre-counted handpay id matches authorized pending transaction"
