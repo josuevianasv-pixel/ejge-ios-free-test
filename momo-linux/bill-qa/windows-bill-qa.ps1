@@ -247,6 +247,95 @@ if($failCount -eq 0){
         & $qaRunnerFile -Fase DespuesDeReinicio -Puerto $Port -ConfirmoLaboratorioSinDineroReal
       }
     }
+    # End-to-end monetary contract, using the SAME pending $5 bill from the
+    # pre-restart phase, not a newly fabricated identifier.
+    function Qa-Http([string]$method,[string]$path,[hashtable]$payload=@{}){
+      $req=[System.Net.HttpWebRequest][System.Net.WebRequest]::Create(("http://127.0.0.1:"+$Port+$path))
+      $req.Proxy=$null; $req.KeepAlive=$false; $req.Timeout=10000; $req.Method=$method
+      if($method -eq "POST"){
+        $raw=[Text.Encoding]::UTF8.GetBytes(($payload|ConvertTo-Json -Compress -Depth 20))
+        $req.ContentType="application/json";$req.ContentLength=$raw.Length
+        $w=$req.GetRequestStream()
+        try{$w.Write($raw,0,$raw.Length)}finally{$w.Dispose()}
+      }
+      $resp=$null
+      try{$resp=[System.Net.HttpWebResponse]$req.GetResponse()}
+      catch [System.Net.WebException]{$resp=$_.Exception.Response;if($null -eq $resp){throw}}
+      try{
+        $reader=New-Object IO.StreamReader($resp.GetResponseStream())
+        try{$text=$reader.ReadToEnd()}finally{$reader.Dispose()}
+        Assert-QA (-not [string]::IsNullOrWhiteSpace($text)) ("EMPTY_HTTP_RESPONSE "+$path)
+        return @{http=[int]$resp.StatusCode;body=(ConvertFrom-Json -InputObject $text)}
+      }finally{if($null -ne $resp){$resp.Dispose()}}
+    }
+    $billId=""
+    $preBalance=0
+    Add-Result "http_bill_in_credit_ack_exactly_once" {
+      $evidence=Get-Content -LiteralPath (Join-Path $RootDir "QA-BILLETERO-ULTIMA-PRUEBA.json") -Raw|ConvertFrom-Json
+      Assert-QA ($evidence.phase -eq "DESPUES_REINICIO_PASS") "Fase de reinicio pendiente"
+      $billId=[string]$evidence.id
+      Assert-QA (-not [string]::IsNullOrWhiteSpace($billId)) "ID del billete vacio"
+      $s=(Qa-Http "GET" "/__local/billacceptor/status").body
+      Assert-QA ($s.historyUnsafe -ne $true) "Historial inseguro"
+      $rows=@($s.recentBills|Where-Object {$_.id -eq $billId})
+      Assert-QA ($rows.Count -eq 1) "Billete del reinicio no aparece una sola vez"
+      Assert-QA ($rows[0].acked -ne $true) "El billete ya tenia ACK antes del credito"
+      $before=(Qa-Http "GET" "/__local/runtime/state").body.state
+      $preBalance=[double]$before.balance
+      Assert-QA ([Math]::Abs($preBalance) -lt 0.005) "El laboratorio no arranco sin saldo; bloquear prueba monetaria"
+      $ids=@($before.processedBills|Where-Object {$_})
+      Assert-QA ($ids -notcontains $billId) "Billete previamente acreditado; no se puede atribuir la prueba"
+      $acct=(Qa-Http "GET" "/__local/accounting/state").body.state
+      Assert-QA ([Math]::Abs(([double]$acct.lifetime.billIn)-5.0) -lt 0.005) "Bill-In no se registro exactamente una vez"
+      $events=@($acct.events|Where-Object {$_.txId -eq $billId -and $_.event -eq "BILL_ACCEPTED"})
+      Assert-QA ($events.Count -eq 1) "Evento de Bill-In duplicado o ausente"
+      $early=Qa-Http "POST" "/__local/billacceptor/ack" @{id=$billId}
+      Assert-QA ($early.http -ne 200 -and $early.body.acked -ne $true) "El servidor confirmo sin credito guardado"
+      $rev=[long]$before.revision+1
+      $newIds=@($ids)+@($billId)
+      $snapshot=@{
+        schema="EJGE_RUNTIME_STATE_V1";version=2;revision=$rev;reason="BILL_CREDIT";
+        balance=5.0;currency="USD";processedBills=$newIds;spins=0;totalBet=0.2
+      }
+      $post=Qa-Http "POST" "/__local/runtime/state" $snapshot
+      Assert-QA ($post.http -eq 200 -and $post.body.saved -eq $true) "Servidor rechazo credito por billete STACKED"
+      $saved=(Qa-Http "GET" "/__local/runtime/state").body.state
+      Assert-QA ([Math]::Abs(([double]$saved.balance)-5.0) -lt 0.005) "Saldo no persistio exactamente $5"
+      Assert-QA (@($saved.processedBills|Where-Object {$_ -eq $billId}).Count -eq 1) "ID no quedo persistido exactamente una vez"
+      $ack=Qa-Http "POST" "/__local/billacceptor/ack" @{id=$billId}
+      Assert-QA ($ack.http -eq 200 -and $ack.body.acked -eq $true) "ACK despues de credito no fue confirmado"
+      Assert-QA ($ack.body.accountingDurable -eq $true -and $ack.body.runtimeDurable -eq $true -and $ack.body.creditReceiptDurable -eq $true) "ACK carece de recibos duraderos"
+      $repeated=Qa-Http "POST" "/__local/billacceptor/ack" @{id=$billId}
+      Assert-QA ($repeated.http -eq 200 -and $repeated.body.acked -eq $true) "ACK repetido no fue idempotente"
+      for($i=0;$i -lt 3;$i++){[void](Qa-Http "GET" "/__local/billacceptor/status")}
+      $acct2=(Qa-Http "GET" "/__local/accounting/state").body.state
+      Assert-QA ([Math]::Abs(([double]$acct2.lifetime.billIn)-5.0) -lt 0.005) "Se duplico Bill-In al consultar estado"
+      Assert-QA (@($acct2.events|Where-Object {$_.txId -eq $billId -and $_.event -eq "BILL_ACCEPTED"}).Count -eq 1) "Se duplico el evento Bill-In"
+    }
+    if($failCount -eq 0){
+      Add-Result "http_duplicate_credit_rejected_after_process_restart" {
+        Stop-Server
+        Start-Server
+        $virtual=(Qa-Http "POST" "/__local/billacceptor/virtual/config" @{enabled=$true;protocol="EBDS"}).body
+        Assert-QA ($virtual.virtualEnabled -eq $true) "No restauro modo virtual tras reiniciar servidor"
+        $st=(Qa-Http "GET" "/__local/runtime/state").body.state
+        Assert-QA ([Math]::Abs(([double]$st.balance)-5.0) -lt 0.005) "Se perdio o duplico saldo tras reiniciar"
+        Assert-QA (@($st.processedBills|Where-Object {$_ -eq $billId}).Count -eq 1) "Se perdio ID tras reiniciar"
+        $acct=(Qa-Http "GET" "/__local/accounting/state").body.state
+        Assert-QA ([Math]::Abs(([double]$acct.lifetime.billIn)-5.0) -lt 0.005) "Bill-In cambio tras reiniciar"
+        Assert-QA (@($acct.events|Where-Object {$_.txId -eq $billId -and $_.event -eq "BILL_ACCEPTED"}).Count -eq 1) "Evento duplicado tras reiniciar"
+        $bad=@{
+          schema="EJGE_RUNTIME_STATE_V1";version=2;revision=([long]$st.revision+1);reason="BILL_CREDIT";
+          balance=10.0;currency="USD";processedBills=@($st.processedBills);spins=0;totalBet=0.2
+        }
+        $second=Qa-Http "POST" "/__local/runtime/state" $bad
+        Assert-QA ($second.body.saved -ne $true) "DUPLICACION: acepto credito por el mismo ID"
+        $after=(Qa-Http "GET" "/__local/runtime/state").body.state
+        Assert-QA ([Math]::Abs(([double]$after.balance)-5.0) -lt 0.005) "DUPLICACION: cambio el saldo"
+        $ack=Qa-Http "POST" "/__local/billacceptor/ack" @{id=$billId}
+        Assert-QA ($ack.http -eq 200 -and $ack.body.acked -eq $true) "ACK no idempotente despues de reinicio del servidor"
+      }
+    }
   }finally{Stop-Server}
 }
 $report=[ordered]@{
