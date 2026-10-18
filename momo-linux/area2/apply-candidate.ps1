@@ -58,5 +58,33 @@ $end=if($start -ge 0){$s.IndexOf($endMarker,$start,[StringComparison]::Ordinal)}
 if($start -lt 0 -or $end -lt 0){throw "Baseline candidate anchors not found: refusing patch"}
 if($s.LastIndexOf($startMarker,[StringComparison]::Ordinal) -ne $start){throw "Multiple anchors: refusing patch"}
 $s=$s.Substring(0,$start)+$new+$s.Substring($end+$endMarker.Length)
+# The server accepted a second WIN_SETTLED_* with an arbitrarily higher
+# revision even after the pending win was already consumed. Gate settlement
+# to the EXACT durable pending amount and clear it once, fail-closed.
+$methodStart=$s.IndexOf('    static bool SaveRuntimeIfNewer(Dictionary<string,object> incoming)')
+if($methodStart -lt 0){throw "WIN settlement guard: SaveRuntimeIfNewer missing"}
+$writeAnchor='            SaveJsonDictFileCore(runtimeStateFile, incoming);'
+$writeAt=$s.IndexOf($writeAnchor,$methodStart,[StringComparison]::Ordinal)
+$nextMethod=$s.IndexOf('    static bool SaveAccountingIfNewer(', $methodStart,[StringComparison]::Ordinal)
+if($writeAt -lt 0 -or $nextMethod -lt 0 -or $writeAt -gt $nextMethod){throw "WIN settlement guard: write location not found"}
+$gate=@'
+            if(reason.StartsWith("WIN_SETTLED_",StringComparison.Ordinal))
+            {
+                Dictionary<string,object> pending=GetDict(current,"pendingWinCredit");
+                double owed=Money2(GetDouble(pending,"amount",0));
+                double beforeBalance=Money2(GetDouble(current,"balance",0)),
+                       afterBalance=Money2(GetDouble(incoming,"balance",0));
+                bool valid=owed>0 && Math.Abs(afterBalance-Money2(beforeBalance+owed))<.005 &&
+                    GetDict(incoming,"pendingWinCredit").Count==0 &&
+                    GetLong(current,"spins",0)==GetLong(incoming,"spins",0) &&
+                    RuntimeProcessedBillIds(current).SetEquals(RuntimeProcessedBillIds(incoming));
+                if(!valid)
+                {
+                    try{WriteAudit("RUNTIME_REJECT","WIN_SETTLEMENT_NOT_PENDING_OR_ALREADY_PAID");}catch{}
+                    return false;
+                }
+            }
+'@
+$s=$s.Substring(0,$writeAt)+$gate+[Environment]::NewLine+$s.Substring($writeAt)
 Set-Content -LiteralPath $server -Value $s -Encoding UTF8
 Write-Host "AREA2_LAB_CANDIDATE_APPLIED: pre-counted handpay id matches authorized pending transaction"
