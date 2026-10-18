@@ -1,0 +1,117 @@
+name: MME5 | Virtual Bill Windows QA
+run-name: Windows QA - virtual bill persistence and ACK
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/mme5-virtual-bill-windows.yml'
+      - 'momo-linux/bill-qa/**'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Etiqueta de la Release PRIVADA que contiene el ZIP del laboratorio'
+        type: string
+        required: false
+        default: 'mme5-bill-virtual-assets'
+      asset_pattern:
+        description: 'Nombre del ZIP dentro de la Release privada'
+        type: string
+        required: false
+        default: 'MME5_AREA1_BILLETERO_VIRTUAL_DURABILIDAD_LAB_COMPLETO.zip'
+permissions:
+  contents: read
+concurrency:
+  group: mme5-bill-win-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  virtual-bill-windows:
+    name: Compilar C# + probar billetero virtual y reinicios
+    runs-on: windows-2022
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout only public QA scripts
+        uses: actions/checkout@v4
+      - name: Verify Windows PowerShell and prepare private workspace
+        run: |
+          New-Item -ItemType Directory -Force reports, work/source, work/extracted | Out-Null
+          $version = & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+          if ($LASTEXITCODE -ne 0 -or -not $version) { throw 'Windows PowerShell 5.1 unavailable' }
+          "WINDOWS_RUNNER_READY; PowerShell=$version" | Set-Content reports/source-status.txt
+          Write-Host "Windows runner ready"
+      - name: Fetch original lab ZIP from a PRIVATE GitHub release
+        id: source
+        env:
+          GH_TOKEN: ${{ secrets.MOMO_SOURCE_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag || 'mme5-bill-virtual-assets' }}
+          ASSET_PATTERN: ${{ inputs.asset_pattern || 'MME5_AREA1_BILLETERO_VIRTUAL_DURABILIDAD_LAB_COMPLETO.zip' }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
+            "SOURCE_REQUIRED: Configure secret MOMO_SOURCE_TOKEN pointing to the private source repository" | Set-Content reports/source-status.txt
+            throw "Cannot test original sources: MOMO_SOURCE_TOKEN is missing. This is NOT a passing test."
+          }
+          # Never print the token or the ZIP contents to console / public artifacts.
+          $oldEap=$ErrorActionPreference
+          $ErrorActionPreference='Continue'
+          gh release download $env:RELEASE_TAG --repo josuevianasv-pixel/game-capture-agent --pattern $env:ASSET_PATTERN --dir work/source --clobber 2>&1 | Out-Null
+          $code=$LASTEXITCODE
+          $ErrorActionPreference=$oldEap
+          if ($code -ne 0) {
+            "SOURCE_REQUIRED: No accessible private release asset with the requested tag and name" | Set-Content reports/source-status.txt
+            throw "Private MME5 lab ZIP unavailable. No game, C# or bill tests were executed."
+          }
+          $zip=Get-ChildItem work/source -File -Filter '*.zip' | Select-Object -First 1
+          if (-not $zip) {
+            "SOURCE_REQUIRED: Download completed but ZIP not found" | Set-Content reports/source-status.txt
+            throw "No .zip asset present; nothing was tested."
+          }
+          # Extraction stays on the ephemeral Windows runner, NOT in public git or artifacts.
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath work/extracted -Force
+          $server=Get-ChildItem work/extracted -Recurse -File -Filter server-local.ps1 | Select-Object -First 1
+          if (-not $server) {
+            "INVALID_SOURCE: server-local.ps1 missing" | Set-Content reports/source-status.txt
+            throw "ZIP does not contain the local MME5 server."
+          }
+          $root=$server.DirectoryName
+          $required=@('native/VirtualBillAcceptorNative.cs','native/BillAcceptorManager.cs',
+                      'TEST-BILLETERO-VIRTUAL-DURABILIDAD-QA.ps1','VALIDAR-COMPILACION-QA7.ps1')
+          foreach($rel in $required) {
+            if (-not(Test-Path (Join-Path $root $rel))) {
+              "INVALID_SOURCE: missing required lab scripts" | Set-Content reports/source-status.txt
+              throw "ZIP is not the expected virtual-bill durability lab source."
+            }
+          }
+          $root | Set-Content reports/source-root.txt
+          "PRIVATE_SOURCE_READY: extracted to ephemeral Windows runner, not published" | Set-Content reports/source-status.txt
+          Write-Host "Private lab source is present; no assets will be uploaded."
+      - name: Compile ORIGINAL C# and execute native + HTTP emulation tests
+        run: |
+          $root=(Get-Content reports/source-root.txt -Raw).Trim()
+          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File momo-linux/bill-qa/windows-bill-qa.ps1 -RootDir $root -ReportDir "$pwd/reports" -Port 18991
+          if($LASTEXITCODE -ne 0){throw "Bill emulation QA failed. Consult bill-qa-summary.json (no production approval)."}
+      - name: Publish an honest result summary
+        if: always()
+        run: |
+          "### MME5 | Windows Virtual Bill QA" >> $env:GITHUB_STEP_SUMMARY
+          if (Test-Path reports/source-status.txt) {
+            Get-Content reports/source-status.txt | ForEach-Object { "- Source: $_" >> $env:GITHUB_STEP_SUMMARY }
+          }
+          if (Test-Path reports/bill-qa-summary.json) {
+            $r=Get-Content reports/bill-qa-summary.json -Raw|ConvertFrom-Json
+            "- Tests run: $($r.total); passed: $($r.passed); failed: $($r.failed)" >> $env:GITHUB_STEP_SUMMARY
+          } else {
+            "- No original bill tests finished. A green infrastructure step is NOT game validation." >> $env:GITHUB_STEP_SUMMARY
+          }
+          "- Windows runner is not physical MEI/JCM, not Windows LTSC kiosk and not money-real approval." >> $env:GITHUB_STEP_SUMMARY
+      - name: Upload only sanitized QA results (NEVER game files)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mme5-windows-virtual-bill-qa
+          path: |
+            reports/source-status.txt
+            reports/bill-qa-summary.json
+          if-no-files-found: warn
+          retention-days: 3
