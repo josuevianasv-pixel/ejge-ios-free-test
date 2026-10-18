@@ -273,7 +273,7 @@ if($failCount -eq 0){
     Add-Result "http_bill_in_credit_ack_exactly_once" {
       $evidence=Get-Content -LiteralPath (Join-Path $RootDir "QA-BILLETERO-ULTIMA-PRUEBA.json") -Raw|ConvertFrom-Json
       Assert-QA ($evidence.phase -eq "DESPUES_REINICIO_PASS") "Fase de reinicio pendiente"
-      $billId=[string]$evidence.id
+      $script:billId=[string]$evidence.id
       Assert-QA (-not [string]::IsNullOrWhiteSpace($billId)) "ID del billete vacio"
       $s=(Qa-Http "GET" "/__local/billacceptor/status").body
       Assert-QA ($s.historyUnsafe -ne $true) "Historial inseguro"
