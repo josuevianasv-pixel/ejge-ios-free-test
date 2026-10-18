@@ -148,6 +148,78 @@ if($failCount -eq 0){
     }
   }
 }
+if($failCount -eq 0){
+  Add-Result "native_mixed_denominations_multiple_pending_and_restart" {
+    $denoms=@(1.00,5.00,10.00,20.00,50.00,100.00)
+    $d=New-TestDriver "denominations"
+    $ids=New-Object System.Collections.ArrayList
+    $sum=0.0
+    foreach($amount in $denoms){
+      $x=$d.InjectBill([double]$amount)
+      Assert-QA ($x["ok"] -eq $true) ("Falló inserción de "+$amount)
+      Assert-QA ([Math]::Abs(([double]$x["amount"])-$amount) -lt 0.005) "Denominación alterada"
+      $id=[string]$x["id"]
+      Assert-QA (-not $ids.Contains($id)) "ID repetido"
+      [void]$ids.Add($id)
+      $sum+=$amount
+    }
+    Assert-QA ($d.Snapshot()["unackedAccepted"] -eq $denoms.Count) "Se perdió una nota pendiente"
+    $reason=""
+    Assert-QA (-not $d.PrepareForGame(250,[ref]$reason)) "PLAY permitido con notas no confirmadas"
+    $d.Stop()
+    $again=New-TestDriver "denominations"
+    Assert-QA ($again.Snapshot()["unackedAccepted"] -eq $denoms.Count) "Pendientes perdidas por reinicio"
+    $rows=$again.Snapshot()["recentBills"]
+    $actual=0.0
+    foreach($id in $ids){
+      $matches=@($rows|Where-Object {$_['id'] -eq $id})
+      Assert-QA ($matches.Count -eq 1) "ID perdido o duplicado tras reinicio"
+      $actual += [double]$matches[0]["amount"]
+      Assert-QA ($again.Acknowledge([string]$id)) "ACK falló para nota pendiente"
+      Assert-QA ($again.Acknowledge([string]$id)) "ACK repetido falló"
+    }
+    Assert-QA ([Math]::Abs($actual-$sum) -lt 0.005) "Suma de denominaciones incorrecta"
+    $again.Stop()
+    $final=New-TestDriver "denominations"
+    Assert-QA ($final.Snapshot()["unackedAccepted"] -eq 0) "ACK no persistente"
+    foreach($id in $ids){Assert-QA (@(Find-Bill $final ([string]$id)).Count -eq 1) "Historial perdido"}
+    $final.Stop()
+  }
+  Add-Result "native_180_sequential_bills_periodic_restart" {
+    $d=New-TestDriver "stress180"
+    $ids=New-Object System.Collections.ArrayList
+    $denoms=@(1.0,5.0,10.0,20.0)
+    $total=0.0
+    for($i=0;$i -lt 180;$i++){
+      if($i -gt 0 -and $i%45 -eq 0){
+        $d.Stop()
+        $d=New-TestDriver "stress180"
+        Assert-QA ($d.Snapshot()["unackedAccepted"] -eq 0) "ACK pendiente tras reinicio de carga"
+      }
+      $a=$denoms[$i%$denoms.Length]
+      $x=$d.InjectBill([double]$a)
+      Assert-QA ($x["ok"] -eq $true) ("Error de inserción #"+$i)
+      $id=[string]$x["id"]
+      Assert-QA (-not $ids.Contains($id)) ("ID duplicado #"+$i)
+      [void]$ids.Add($id)
+      Assert-QA ($d.Acknowledge($id)) ("ACK falló #"+$i)
+      if($i%7 -eq 0){Assert-QA ($d.Acknowledge($id)) "ACK repetido falló durante carga"}
+      $total+=$a
+    }
+    $d.Stop()
+    $d=New-TestDriver "stress180"
+    $historyFile=Join-Path (Join-Path $testRoot "stress180") "virtual-bill-history-QA.json"
+    $raw=Get-Content -LiteralPath $historyFile -Raw | ConvertFrom-Json
+    $history=@($raw.history)
+    Assert-QA ($history.Count -eq 180) "El archivo duradero no contiene los 180 billetes"
+    Assert-QA (@($history | Where-Object {$_.acked -eq $true}).Count -eq 180) "ACKs no duraderos"
+    $actual=0.0
+    foreach($row in $history){$actual += [double]$row.amount}
+    Assert-QA ([Math]::Abs($actual-$total) -lt 0.005) "Suma duradera incorrecta"
+    Assert-QA (@($history|Select-Object -ExpandProperty id -Unique).Count -eq 180) "IDs no únicos en historial"
+    $d.Stop()
+  }
+}
 Add-Result "whole_server_csharp_compile" {
   $validator=Join-Path $RootDir "VALIDAR-COMPILACION-QA7.ps1"
   Assert-QA (Test-Path $validator) "Validador completo ausente"
