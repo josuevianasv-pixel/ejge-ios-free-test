@@ -24,3 +24,11 @@ Si se ejecuta sin ZIP accesible o sin secreto, **fallara** con `SOURCE_REQUIRED`
 Ver `contracts.md` y `AGENTS.md`. Una correccion monetaria debe ir con nueva prueba y especificacion. El CI no reemplaza revisión humana, prueba de hardware MEI, Windows LTSC, pruebas de 24/7 ni auditoria regulatoria.
 
 **Nota R7:** una copia R7 anterior tenia un hash desactualizado de `www/engine-local.js` en `CRITICAL_SHA256.txt`; una prueba de integridad correcta lo marcara como FAIL hasta revisar y alinear el manifiesto del laboratorio. No modificar codigo ni hashes a ciegas.
+
+## Ejecucion comprobada del 19 de octubre de 2026
+
+En la rama de diagnostico `qa/mme5-source-check` se descargó la Release privada existente `mme5-bill-virtual-assets` sin publicar el juego. Se encontraron 142/142 hashes correctos y 18/22 pruebas PASS. **Cuatro pruebas no existen en ese ZIP antiguo:** `area2-money-safety-contract-selftest.js`, `qa37-r7-profit-ledger-longrun-selftest.js`, `qa38-profit-settlement-idempotency-selftest.js`, `qa36-r6-jackpot-funding-pending-selftest.js`.
+
+Se corrigio un falso positivo del workflow: ahora el paso de QA utiliza `set -euo pipefail` de forma que `node | tee` **propaga errores**. [Ejecucion que falla correctamente](https://github.com/josuevianasv-pixel/ejge-ios-free-test/actions/runs/39241166609).
+
+La corrida anterior local de un ZIP R7 con SHA256 verificado y pruebas 22/22 aprobadas **no** equivale a una corrida GitHub con ese mismo ZIP. Para obtener esta ultima hace falta adjuntar **un laboratorio sin datos reales** a una Release PRIVADA de `game-capture-agent` con etiqueta `mme5-rayrabbit-r403-r7` y asset `MME5_R403_R7_RAYRABBIT_LAB_COMPLETO.zip`; luego usar Run workflow desde este repo publico en `main`. No subir archivos del juego a este repositorio publico.
