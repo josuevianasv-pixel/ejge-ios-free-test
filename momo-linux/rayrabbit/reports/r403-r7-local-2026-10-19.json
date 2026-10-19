@@ -1,0 +1,37 @@
+{
+  "schema": "mme5-sanitized-qa-result-v1",
+  "date_utc": "2026-10-19",
+  "source": "MME5_R403_R7_RAYRABBIT_LAB_COMPLETO.zip",
+  "source_sha256": "e44a2d00ce3b6614260bc85c9bd611248d781120fcaf98e3534e93e859ce6310",
+  "execution": "LOCAL_SANDBOX_NODE_22_NOT_GITHUB_SOURCE_RUN",
+  "node": "v22.16.0",
+  "scope": "selected_regressions",
+  "total": 22,
+  "counts": {
+    "PASS": 22,
+    "FAIL": 0,
+    "MISSING": 0,
+    "TIMEOUT": 0,
+    "ERROR": 0
+  },
+  "integrity": {
+    "checked": 142,
+    "passed": 142,
+    "failed": 0
+  },
+  "groups": [
+    "bill",
+    "accounting",
+    "jackpots",
+    "server",
+    "kiosk_static"
+  ],
+  "safety": {
+    "source_asset_uploaded_to_github": false,
+    "github_22_tests_completed": false,
+    "windows_ltsc_tested": false,
+    "physical_bill_acceptor_tested": false,
+    "production_certified": false
+  },
+  "notes": "Solo datos sinteticos y hash de fuente; no incluye archivos, saldos, llaves, licencias o logs originales."
+}
