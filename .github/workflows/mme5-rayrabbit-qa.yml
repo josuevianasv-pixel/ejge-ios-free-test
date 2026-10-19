@@ -1,0 +1,103 @@
+name: MME5 | RayRabbit Inspired QA
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/mme5-rayrabbit-qa.yml"
+      - "momo-linux/rayrabbit/**"
+  push:
+    branches: [main, "qa/mme5-rayrabbit-public"]
+    paths:
+      - ".github/workflows/mme5-rayrabbit-qa.yml"
+      - "momo-linux/rayrabbit/**"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Etiqueta de Release PRIVADA con laboratorio MME5 R40.3 R7"
+        type: string
+        default: "mme5-rayrabbit-r403-r7"
+        required: true
+      asset_pattern:
+        description: "ZIP del laboratorio R40.3 R7 (NUNCA datos reales)"
+        type: string
+        default: "MME5_R403_R7_RAYRABBIT_LAB_COMPLETO.zip"
+        required: true
+      suite:
+        description: "Pruebas dirigidas o historicas"
+        type: choice
+        options: [selected, historical]
+        default: selected
+permissions:
+  contents: read
+concurrency:
+  group: mme5-rayrabbit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  public-policy:
+    name: "Politica SDD/TDD (NO valida juego)"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Selftest del guard
+        run: node momo-linux/rayrabbit/guard-selftest.mjs
+      - name: Reglas de cambios en PR
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node momo-linux/rayrabbit/guard.mjs
+      - name: Estado correcto del alcance
+        run: echo "PUBLIC_POLICY_OK; GAME_SOURCE_NOT_CHECKED; NOT_CERTIFIED_FOR_PRODUCTION" >> "$GITHUB_STEP_SUMMARY"
+
+  private-source:
+    name: "Prueba real de R40.3 con ZIP privado (manual)"
+    if: github.event_name == 'workflow_dispatch'
+    needs: [public-policy]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Obtener ZIP desde Release PRIVADA
+        env:
+          GH_TOKEN: ${{ secrets.MOMO_SOURCE_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          ASSET_PATTERN: ${{ inputs.asset_pattern }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::SOURCE_REQUIRED: configure MOMO_SOURCE_TOKEN con permiso Contents:Read solo al repositorio privado."
+            exit 2
+          fi
+          mkdir -p "$RUNNER_TEMP/mme5/source" "$RUNNER_TEMP/mme5/extracted"
+          if ! gh release download "$RELEASE_TAG" --repo josuevianasv-pixel/game-capture-agent --pattern "$ASSET_PATTERN" --dir "$RUNNER_TEMP/mme5/source" --clobber >/dev/null 2>&1; then
+            echo "::error::SOURCE_REQUIRED: no existe la release o el archivo privado indicado; no se probo el juego."
+            exit 2
+          fi
+          zip="$(find "$RUNNER_TEMP/mme5/source" -maxdepth 1 -type f -name '*.zip' -print -quit)"
+          test -n "$zip" || { echo "::error::SOURCE_REQUIRED: no ZIP"; exit 2; }
+          unzip -qq "$zip" -d "$RUNNER_TEMP/mme5/extracted"
+          server="$(find "$RUNNER_TEMP/mme5/extracted" -type f -name 'server-local.ps1' -print -quit)"
+          test -n "$server" || { echo "::error::INVALID_SOURCE: server-local.ps1 ausente"; exit 2; }
+          root="$(dirname "$server")"
+          test -f "$root/www/engine-local.js" || { echo "::error::INVALID_SOURCE: motor ausente"; exit 2; }
+          echo "MME5_SOURCE_ROOT=$root" >> "$GITHUB_ENV"
+          echo "SOURCE_LOADED_FROM_PRIVATE_RELEASE; no se publican archivos" >> "$GITHUB_STEP_SUMMARY"
+      - name: Auditar integridad y regresiones (solo resumen publico)
+        env:
+          SUITE: ${{ inputs.suite }}
+          MME5_QA_TIMEOUT_MS: '35000'
+        run: |
+          node momo-linux/rayrabbit/verify-source.mjs --root "$MME5_SOURCE_ROOT" --suite "$SUITE" | tee "$RUNNER_TEMP/mme5-status.txt"
+      - name: Resumen seguro
+        if: always()
+        run: echo "Solo se muestran nombres y estados de pruebas; NO se adjuntan archivos ni logs internos del juego. Runner Linux NO sustituye Windows LTSC, Edge ni hardware MEI/RS232." >> "$GITHUB_STEP_SUMMARY"
