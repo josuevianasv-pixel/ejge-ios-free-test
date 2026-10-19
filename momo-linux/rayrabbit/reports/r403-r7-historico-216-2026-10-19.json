@@ -1,0 +1,36 @@
+{
+  "fecha": "2026-10-19",
+  "metodo": "node 22; pruebas selftest historicas ejecutadas desde copia temporal del ZIP MME5_R403_R7_RAYRABBIT_LAB_COMPLETO.zip",
+  "sha256_zip": "e44a2d00ce3b6614260bc85c9bd611248d781120fcaf98e3534e93e859ce6310",
+  "historicas": {
+    "total": 216,
+    "pass": 179,
+    "fail": 37,
+    "timeout": 0,
+    "missing": 0,
+    "error": 0
+  },
+  "clasificacion_preliminar": {
+    "monetario_y_liquidaciones": 8,
+    "jackpot_y_progresivos": 12,
+    "motor_y_protocolo": 4,
+    "pantallas_wms_kiosko": 12,
+    "diagnostico_operacion": 1
+  },
+  "seleccionadas": {
+    "total": 22,
+    "pass": 22
+  },
+  "integridad": {
+    "total": 142,
+    "pass": 142
+  },
+  "observaciones": [
+    "No equivalen a 37 defectos demostrados; pueden incluir pruebas antiguas o incompatibles.",
+    "r25-kiosk-hardening-selftest.js requiere INSTALAR.ps1 en una ruta ausente del ZIP.",
+    "Ninguna prueba valida hardware RS232, Windows LTSC, cortes de energia ni operacion monetaria real."
+  ],
+  "fuente_publicada": false,
+  "entorno_github_valido_para_estas_216_pruebas": false,
+  "certificado_produccion": false
+}
