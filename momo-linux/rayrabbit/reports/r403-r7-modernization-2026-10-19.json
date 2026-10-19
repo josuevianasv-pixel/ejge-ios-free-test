@@ -1,0 +1,83 @@
+{
+  "schema": "mme5-rayrabbit-qa-progress-v2",
+  "date": "2026-10-19",
+  "environment": "local Linux Node 22 with MME5 R40.3 R7 laboratory ZIP; no physical Windows LTSC / RS232",
+  "scope": "LAB_ONLY_NO_PRODUCTION_CHANGE",
+  "original_source_sha256": "e44a2d00ce3b6614260bc85c9bd611248d781120fcaf98e3534e93e859ce6310",
+  "qa_engine_original_sha256": "901a0ed80b398fca8f518efe86a814578e4432476d1c248b69da9ecc79d09396",
+  "qa_engine_patched_sha256": "74345c8c3ba1a7a6c266f5ef59c3b6cc7f6a9f30ff0f01978d475abadd646057",
+  "historical_before": {
+    "total": 216,
+    "pass": 179,
+    "fail": 37,
+    "timeout": 0
+  },
+  "historical_after": {
+    "total": 216,
+    "pass": 189,
+    "fail": 27,
+    "timeout": 0
+  },
+  "selected_regressions_after": {
+    "total": 22,
+    "pass": 22,
+    "fail": 0
+  },
+  "integrity_after": {
+    "total": 142,
+    "passed": 142,
+    "failed": 0
+  },
+  "recovered_legacy": [
+    "qa-center-selftest.js",
+    "qa-progressive-force-h25-selftest.js"
+  ],
+  "modernized_qa": {
+    "contract_smoke": {
+      "passed": 10,
+      "total": 10
+    },
+    "handpay_durable_scenarios": {
+      "passed": 3,
+      "total": 3,
+      "scenarios": [
+        "success",
+        "lostReply",
+        "HTTP 500 fail-closed"
+      ]
+    },
+    "updated_legacy_tests": {
+      "passed": 8,
+      "total": 8,
+      "tests": [
+        "h96-r14-bet-play-selftest.js",
+        "h96-r25-stable-borderless-selftest.js",
+        "h96-r7-paytable-visible-selftest.js",
+        "layout-director-selftest.js",
+        "r32-gt210-r28-current-selftest.js",
+        "r37-audit-regression-selftest.js",
+        "r37s3-video-longrun-selftest.js",
+        "touch-layout-selftest.js"
+      ]
+    }
+  },
+  "remaining_legacy_fail": 27,
+  "unresolved": [
+    "2 original handpay legacy suites require modern fixtures and replay tests",
+    "32 test expectations/fixtures classified for modernization (some partly covered by new tests)",
+    "1 legacy kiosk test requires a V11 replacement; R7 installation scripts still include Shell Launcher",
+    "main.bundle.js differs from a historical fingerprint; must validate lineage before declaring obsolete"
+  ],
+  "qa_patch_only": true,
+  "published_source_zip": false,
+  "source_not_published": true,
+  "production_certified": false,
+  "remaining_by_area": {
+    "Monetario y liquidaciones": 7,
+    "Jackpot y progresivos": 10,
+    "Motor y protocolo de giros": 3,
+    "Pantallas, WMS y kiosko": 6,
+    "Diagnóstico y operación": 1
+  },
+  "patch_zip_sha256": "0740e7f8136e697f9795a93b7f5412b358440facb97b06f7fa36bc94c9b85607"
+}
