@@ -5,7 +5,7 @@ on:
       - ".github/workflows/mme5-rayrabbit-qa.yml"
       - "momo-linux/rayrabbit/**"
   push:
-    branches: [main, "qa/mme5-rayrabbit-public"]
+    branches: [main, "qa/mme5-rayrabbit-public", "qa/mme5-source-check"]
     paths:
       - ".github/workflows/mme5-rayrabbit-qa.yml"
       - "momo-linux/rayrabbit/**"
@@ -61,7 +61,7 @@ jobs:
 
   private-source:
     name: "Prueba real de R40.3 con ZIP privado (manual)"
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/qa/mme5-source-check')
     needs: [public-policy]
     runs-on: ubuntu-24.04
     timeout-minutes: 55
@@ -75,8 +75,8 @@ jobs:
       - name: Obtener ZIP desde Release PRIVADA
         env:
           GH_TOKEN: ${{ secrets.MOMO_SOURCE_TOKEN }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
-          ASSET_PATTERN: ${{ inputs.asset_pattern }}
+          RELEASE_TAG: ${{ inputs.release_tag || 'mme5-bill-virtual-assets' }}
+          ASSET_PATTERN: ${{ inputs.asset_pattern || 'MME5_AREA1_BILLETERO_VIRTUAL_DURABILIDAD_LAB_COMPLETO.zip' }}
         run: |
           set -euo pipefail
           if [ -z "$GH_TOKEN" ]; then
@@ -99,7 +99,7 @@ jobs:
           echo "SOURCE_LOADED_FROM_PRIVATE_RELEASE; no se publican archivos" >> "$GITHUB_STEP_SUMMARY"
       - name: Auditar integridad y regresiones (solo resumen publico)
         env:
-          SUITE: ${{ inputs.suite }}
+          SUITE: ${{ inputs.suite || 'selected' }}
           MME5_QA_TIMEOUT_MS: '35000'
         run: |
           node momo-linux/rayrabbit/verify-source.mjs --root "$MME5_SOURCE_ROOT" --suite "$SUITE" | tee "$RUNNER_TEMP/mme5-status.txt"
