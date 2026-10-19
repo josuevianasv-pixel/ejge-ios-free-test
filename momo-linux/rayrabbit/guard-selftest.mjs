@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {checkChanges,isGameSensitive,isQACode} from './guard.mjs';
+assert.ok(isGameSensitive('www/engine-local.js'));
+assert.ok(isGameSensitive('server-local.ps1'));
+assert.ok(isQACode('momo-linux/rayrabbit/verify-source.mjs'));
+assert.equal(checkChanges(['momo-linux/rayrabbit/verify-source.mjs']).pass,false);
+assert.equal(checkChanges(['momo-linux/rayrabbit/verify-source.mjs','momo-linux/rayrabbit/contracts.md']).pass,false);
+assert.equal(checkChanges(['momo-linux/rayrabbit/verify-source.mjs','momo-linux/rayrabbit/guard-selftest.mjs']).pass,false);
+assert.equal(checkChanges(['momo-linux/rayrabbit/verify-source.mjs','momo-linux/rayrabbit/contracts.md','momo-linux/rayrabbit/guard-selftest.mjs']).pass,true);
+assert.equal(checkChanges(['tests/unrelated-data.json']).pass,true);
+console.log('PASS: 8 invariantes del guard de cambios; NO se probo el juego.');
