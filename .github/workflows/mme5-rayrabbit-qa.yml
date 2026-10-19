@@ -102,6 +102,7 @@ jobs:
           SUITE: ${{ inputs.suite || 'selected' }}
           MME5_QA_TIMEOUT_MS: '35000'
         run: |
+          set -euo pipefail
           node momo-linux/rayrabbit/verify-source.mjs --root "$MME5_SOURCE_ROOT" --suite "$SUITE" | tee "$RUNNER_TEMP/mme5-status.txt"
       - name: Resumen seguro
         if: always()
