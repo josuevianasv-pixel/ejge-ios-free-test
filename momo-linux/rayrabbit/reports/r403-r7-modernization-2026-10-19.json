@@ -14,8 +14,8 @@
   },
   "historical_after": {
     "total": 216,
-    "pass": 181,
-    "fail": 35,
+    "pass": 189,
+    "fail": 27,
     "timeout": 0
   },
   "selected_regressions_after": {
@@ -46,16 +46,22 @@
         "HTTP 500 fail-closed"
       ]
     },
-    "legacy_static_tests": {
-      "passed": 2,
-      "total": 2,
+    "updated_legacy_tests": {
+      "passed": 8,
+      "total": 8,
       "tests": [
         "h96-r14-bet-play-selftest.js",
-        "r37-audit-regression-selftest.js"
+        "h96-r25-stable-borderless-selftest.js",
+        "h96-r7-paytable-visible-selftest.js",
+        "layout-director-selftest.js",
+        "r32-gt210-r28-current-selftest.js",
+        "r37-audit-regression-selftest.js",
+        "r37s3-video-longrun-selftest.js",
+        "touch-layout-selftest.js"
       ]
     }
   },
-  "remaining_legacy_fail": 35,
+  "remaining_legacy_fail": 27,
   "unresolved": [
     "2 original handpay legacy suites require modern fixtures and replay tests",
     "32 test expectations/fixtures classified for modernization (some partly covered by new tests)",
@@ -65,5 +71,13 @@
   "qa_patch_only": true,
   "published_source_zip": false,
   "source_not_published": true,
-  "production_certified": false
+  "production_certified": false,
+  "remaining_by_area": {
+    "Monetario y liquidaciones": 7,
+    "Jackpot y progresivos": 10,
+    "Motor y protocolo de giros": 3,
+    "Pantallas, WMS y kiosko": 6,
+    "Diagnóstico y operación": 1
+  },
+  "patch_zip_sha256": "0740e7f8136e697f9795a93b7f5412b358440facb97b06f7fa36bc94c9b85607"
 }
