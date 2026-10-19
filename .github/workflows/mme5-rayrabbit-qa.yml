@@ -44,6 +44,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Validar sintaxis de todos los scripts QA
+        run: |
+          node --check momo-linux/rayrabbit/guard.mjs
+          node --check momo-linux/rayrabbit/guard-selftest.mjs
+          node --check momo-linux/rayrabbit/verify-source.mjs
       - name: Selftest del guard
         run: node momo-linux/rayrabbit/guard-selftest.mjs
       - name: Reglas de cambios en PR
