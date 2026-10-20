@@ -1,0 +1,22 @@
+name: Mo Mummy R2 - recovery lab tests
+on:
+  push:
+    branches:
+      - lab/mo-mummy-recovery-r2
+    paths:
+      - 'mo-mummy-recovery-r2/**'
+      - '.github/workflows/mo-mummy-recovery-r2.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run 11 recovery state tests
+        working-directory: mo-mummy-recovery-r2
+        run: node --test test/*.test.mjs
