@@ -1,0 +1,98 @@
+name: MME5 | Standalone Windows Network Gate
+run-name: Windows Server 2022 - standalone / no Linked ports
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/mme5-standalone-windows.yml'
+      - 'momo-linux/standalone/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: mme5-standalone-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  public-harness:
+    name: Public guard selftest (NOT full game)
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate public QA code and synthetic fail-closed scenarios
+        shell: pwsh
+        run: |
+          node --check momo-linux/standalone/standalone-gate.cjs
+          node momo-linux/standalone/standalone-gate.cjs --selftest
+          if ($LASTEXITCODE -ne 0) { throw 'Public gate selftest failed' }
+          $tokens=$null; $errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'momo-linux/standalone/windows-gate-qa.ps1').Path,
+            [ref]$tokens,[ref]$errors)
+          if ($errors.Count) { throw ('PowerShell QA syntax invalid: '+($errors.Message -join '; ')) }
+          'PUBLIC_CONTRACT_PASS (not a game certification)' >> $env:GITHUB_STEP_SUMMARY
+
+  private-windows:
+    name: Real C# compile + no Linked sockets (private source)
+    needs: public-harness
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Obtain source from private GitHub release (never publish ZIP)
+        env:
+          GH_TOKEN: ${{ secrets.MOMO_SOURCE_TOKEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:GH_TOKEN)){
+            throw 'SOURCE_REQUIRED: Secret MOMO_SOURCE_TOKEN absent. Real C# not tested; do not interpret public selftest as game validation.'
+          }
+          $target=Join-Path $env:RUNNER_TEMP 'MME5-PrivateSource'
+          $extracted=Join-Path $env:RUNNER_TEMP 'MME5-EphemeralLab'
+          New-Item -ItemType Directory -Force $target,$extracted | Out-Null
+          gh release download 'mme5-bill-virtual-assets' --repo 'josuevianasv-pixel/game-capture-agent' --pattern 'MME5_AREA1_BILLETERO_VIRTUAL_DURABILIDAD_LAB_COMPLETO.zip' --dir $target --clobber 2>&1 | Out-Null
+          if($LASTEXITCODE -ne 0){throw 'SOURCE_REQUIRED: private release not accessible; no MME5 test executed'}
+          $zip=Get-ChildItem -LiteralPath $target -Filter '*.zip' -File | Select-Object -First 1
+          if(-not $zip){throw 'SOURCE_REQUIRED: private source ZIP missing'}
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $extracted -Force
+          $server=Get-ChildItem -LiteralPath $extracted -Recurse -File -Filter server-local.ps1 | Select-Object -First 1
+          if(-not $server){throw 'INVALID_SOURCE: real MME5 server missing'}
+          $server.Directory.FullName | Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'mme5-source-root.txt')
+          Write-Host 'PRIVATE_SOURCE_AVAILABLE: temporary Windows runner only'
+      - name: Patch ONLY ephemeral copy; reject unexpected source revisions
+        run: |
+          $root=(Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'mme5-source-root.txt') -Raw).Trim()
+          node momo-linux/standalone/standalone-gate.cjs --patch (Join-Path $root 'server-local.ps1')
+          if($LASTEXITCODE -ne 0){throw 'SOURCE_MISMATCH: patch NOT validated against private revision'}
+      - name: Compile actual native C# and verify standalone network gate
+        run: |
+          $root=(Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'mme5-source-root.txt') -Raw).Trim()
+          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File momo-linux/standalone/windows-gate-qa.ps1 -SourceRoot $root -ReportFile (Join-Path $env:RUNNER_TEMP 'mme5-standalone-result.json')
+          if($LASTEXITCODE -ne 0){throw 'C# compile or standalone sockets failed'}
+      - name: Publish safe result summary, never a copy of the game
+        if: always()
+        run: |
+          '### MME5 STANDALONE Windows test' >> $env:GITHUB_STEP_SUMMARY
+          $result=Join-Path $env:RUNNER_TEMP 'mme5-standalone-result.json'
+          if(Test-Path $result){
+            $r=Get-Content $result -Raw|ConvertFrom-Json
+            "- C# compilation: $($r.compiled)" >> $env:GITHUB_STEP_SUMMARY
+            "- Linked networking started: $($r.coordinator_started)" >> $env:GITHUB_STEP_SUMMARY
+            "- TCP/UDP listener created: $($r.linked_tcp_opened)/$($r.linked_udp_opened)" >> $env:GITHUB_STEP_SUMMARY
+          } else {
+            '- SOURCE_REQUIRED / SOURCE_MISMATCH / QA failure: C# game NOT validated' >> $env:GITHUB_STEP_SUMMARY
+          }
+          '- Windows Server runner is not Windows 10 LTSC with Edge and RS-232 hardware' >> $env:GITHUB_STEP_SUMMARY
+          '- No production installation, no modified licenses, no state or balances published' >> $env:GITHUB_STEP_SUMMARY
