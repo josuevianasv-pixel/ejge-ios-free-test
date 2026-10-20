@@ -1,0 +1,13 @@
+import test from "node:test";import assert from "node:assert/strict";import {INITIAL,play,ack,status,randBelow} from "../src/ledger.mjs";
+const fresh=()=>structuredClone(INITIAL),id="round_00000001";
+test("pending round recorded and survives reconnection",()=>{const a=play(fresh(),id,100);assert.equal(status(a.state).pending.id,id);assert.equal(status(a.state).spins,1);});
+test("duplicate play never charges twice",()=>{const a=play(fresh(),id,100),b=play(a.state,id,100);assert.deepEqual(a.response,b.response);assert.equal(b.state.balance,a.state.balance);assert.equal(b.state.spins,1);});
+test("different round blocked until ack",()=>{const a=play(fresh(),id,100);assert.throws(()=>play(a.state,"round_00000002",100),/PENDING_ROUND/);});
+test("ack is idempotent",()=>{const a=play(fresh(),id,100),b=ack(a.state,id),c=ack(b.state,id);assert.equal(b.state.balance,c.state.balance);assert.equal(c.changed,false);});
+test("retry after ack returns same outcome",()=>{const a=play(fresh(),id,100),b=ack(a.state,id),c=play(b.state,id,100);assert.equal(c.response.outcome.roll,a.response.outcome.roll);assert.equal(c.changed,false);});
+test("changed bet is conflict",()=>{const a=play(fresh(),id,100);assert.throws(()=>play(a.state,id,200),/IDEMPOTENCY_CONFLICT/);});
+test("insufficient funds rejected",()=>{const s=fresh();s.balance=0;assert.throws(()=>play(s,id,100),/INSUFFICIENT_FUNDS/);});
+test("bad identifiers rejected",()=>assert.throws(()=>play(fresh(),"bad",100),/INVALID_ROUND_ID/));
+test("fractional bet rejected",()=>assert.throws(()=>play(fresh(),id,1.2),/INVALID_BET/));
+test("RNG rejection-sampling boundary",()=>{const cr={getRandomValues:a=>{a[0]=0xffffffff;return a;}};assert.equal(randBelow(1,cr),0);});
+test("state transitions preserve input",()=>{const s=fresh();play(s,id,100);assert.deepEqual(s,fresh());});
