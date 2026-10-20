@@ -1,0 +1,21 @@
+{
+  "name": "ejge-mm-rng-recovery-lab",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-10-20",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "MACHINE_LEDGER",
+        "class_name": "MachineLedger"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "MachineLedger"
+      ]
+    }
+  ]
+}
