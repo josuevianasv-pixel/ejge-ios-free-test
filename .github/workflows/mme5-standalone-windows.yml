@@ -81,6 +81,13 @@ jobs:
           $root=(Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'mme5-source-root.txt') -Raw).Trim()
           & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File momo-linux/standalone/windows-gate-qa.ps1 -SourceRoot $root -ReportFile (Join-Path $env:RUNNER_TEMP 'mme5-standalone-result.json')
           if($LASTEXITCODE -ne 0){throw 'C# compile or standalone sockets failed'}
+      - name: Soak actual standalone local server with read-only HTTP requests
+        run: |
+          $root=(Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'mme5-source-root.txt') -Raw).Trim()
+          node --check momo-linux/standalone/server-soak-readonly.cjs
+          if($LASTEXITCODE -ne 0){throw 'QA JavaScript syntax invalid'}
+          node momo-linux/standalone/server-soak-readonly.cjs $root
+          if($LASTEXITCODE -ne 0){throw 'Server soak or client disconnect recovery FAILED'}
       - name: Publish safe result summary, never a copy of the game
         if: always()
         run: |
@@ -93,6 +100,17 @@ jobs:
             "- TCP/UDP listener created: $($r.linked_tcp_opened)/$($r.linked_udp_opened)" >> $env:GITHUB_STEP_SUMMARY
           } else {
             '- SOURCE_REQUIRED / SOURCE_MISMATCH / QA failure: C# game NOT validated' >> $env:GITHUB_STEP_SUMMARY
+          }
+          $soak=Join-Path $env:RUNNER_TEMP 'mme5-server-soak-summary.json'
+          if(Test-Path $soak){
+            $s=Get-Content $soak -Raw|ConvertFrom-Json
+            "- Read-only local HTTP soak complete: $($s.completed)" >> $env:GITHUB_STEP_SUMMARY
+            "- 1500 HTTP requests: errors=$($s.mixedReadOnly1500.networkErrors) invalid JSON=$($s.mixedReadOnly1500.jsonFailures)" >> $env:GITHUB_STEP_SUMMARY
+            "- Memory delta (MiB, short test, not a leak diagnosis): $($s.workingSetDeltaMiB)" >> $env:GITHUB_STEP_SUMMARY
+            "- Injected aborted HTTP clients: $($s.injectedAbortedReads)" >> $env:GITHUB_STEP_SUMMARY
+            if($s.error){"- Soak ERROR: $($s.error)" >> $env:GITHUB_STEP_SUMMARY}
+          } else {
+            '- Server soak NOT EXECUTED / no report' >> $env:GITHUB_STEP_SUMMARY
           }
           '- Windows Server runner is not Windows 10 LTSC with Edge and RS-232 hardware' >> $env:GITHUB_STEP_SUMMARY
           '- No production installation, no modified licenses, no state or balances published' >> $env:GITHUB_STEP_SUMMARY
