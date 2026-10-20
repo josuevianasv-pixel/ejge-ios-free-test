@@ -1,0 +1,13 @@
+import test from "node:test";import assert from "node:assert/strict";import {validateMessage,replayResultOrError} from "../src/cometd-guard.mjs";
+const cid="cloud-client-A";const state={handshaken:true,clientId:cid};
+const spin={channel:"/service/game",clientId:cid,data:{event:"spin",roundId:"round_00000001"},id:"1"};
+test("reject connect before handshake",()=>assert.equal(validateMessage({channel:"/meta/connect",clientId:cid}).error,"HANDSHAKE_REQUIRED"));
+test("reject handshake missing websocket transport",()=>assert.equal(validateMessage({channel:"/meta/handshake",supportedConnectionTypes:["long-polling"]}).error,"UNSUPPORTED_TRANSPORT"));
+test("accept valid handshake",()=>assert.equal(validateMessage({channel:"/meta/handshake",supportedConnectionTypes:["websocket"]}).ok,true));
+test("reject wrong clientId after handshake",()=>assert.equal(validateMessage({...spin,clientId:"other"},state).error,"INVALID_CLIENT_ID"));
+test("reject missing gameplay event",()=>assert.equal(validateMessage({...spin,data:{roundId:"round_00000001"}},state).error,"MISSING_EVENT"));
+test("reject unknown gameplay event",()=>assert.equal(validateMessage({...spin,data:{event:"arbitrary",roundId:"round_00000001"}},state).error,"UNKNOWN_EVENT"));
+test("reject monetary request with no stable round ID",()=>assert.equal(validateMessage({...spin,data:{event:"spin"}},state).error,"STABLE_ROUND_ID_REQUIRED"));
+test("accept monetary round with stable ID",()=>assert.equal(validateMessage(spin,state).roundId,"round_00000001"));
+test("refuse exhausted replay instead of recycling",()=>assert.equal(replayResultOrError({next:()=>null},"spin").error,"REPLAY_EXHAUSTED_OR_UNKNOWN_EVENT"));
+test("deny unknown channel",()=>assert.equal(validateMessage({channel:"/unknown",clientId:cid},state).error,"UNKNOWN_CHANNEL"));
