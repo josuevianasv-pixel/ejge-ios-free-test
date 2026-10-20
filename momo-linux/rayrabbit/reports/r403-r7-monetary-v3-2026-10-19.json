@@ -1,0 +1,66 @@
+{
+  "project": "MME5 R40.3 R7",
+  "date": "2026-10-19",
+  "scope": "TESTS_AND_SYNTHETIC_MOCKS_ONLY__NO_PRODUCTION_CHANGE",
+  "historical_before_v2": {
+    "total": 216,
+    "passed": 189,
+    "failed": 27
+  },
+  "historical_after_v3": {
+    "total": 216,
+    "passed": 196,
+    "failed": 20,
+    "timeout": 0
+  },
+  "seven_updated_legacy_tests": [
+    "h79-user-request-selftest.js",
+    "linked-engine-h35-selftest.js",
+    "r30-cashout-powerloss-durable-selftest.js",
+    "r35-handpay-long-session-durable-selftest.js",
+    "r36-1-handpay-atomic-error-fallback-selftest.js",
+    "r36-fixed-profit-selftest.js",
+    "win-settlement-h84-selftest.js"
+  ],
+  "selected_regressions": {
+    "passed": 22,
+    "total": 22
+  },
+  "integrity": {
+    "valid": 142,
+    "total": 142
+  },
+  "updated_qa_patch_sha256": "11da0ba5316b828b9eb6d223b48f75f4876fd148d3c0c5e3295ec0b0ef7c5740",
+  "source_zip_sha256": "e44a2d00ce3b6614260bc85c9bd611248d781120fcaf98e3534e93e859ce6310",
+  "remaining_failed_legacy_tests": [
+    "direct-qa-h34-selftest.js",
+    "h96-hud-native-controls-selftest.js",
+    "h96-physical-bet-lock-selftest.js",
+    "h96-r6-hud-render-toggle-selftest.js",
+    "jackpot-wild-gate-h70-selftest.js",
+    "preflight-order-h65-selftest.js",
+    "progressive-durability-h25-selftest.js",
+    "progressive-local-selftest.js",
+    "progressive-startup-h28-selftest.js",
+    "progressive-window-h25-selftest.js",
+    "r25-kiosk-hardening-selftest.js",
+    "r29-progressive-award-snapshot-selftest.js",
+    "r29-progressive-config-spin-selftest.js",
+    "r32-wms-routing-current-selftest.js",
+    "r35-r6-operations-center-selftest.js",
+    "r37s4-final-install-validator-selftest.js",
+    "spin-protocol-fuzz-h60-selftest.js",
+    "stability-protocol-h65-selftest.js",
+    "total-bet-h74-deep-selftest.js",
+    "total-bet-h74-selftest.js"
+  ],
+  "limits": {
+    "hardware_tested": false,
+    "real_server_CSharp_tested": false,
+    "Windows_LTSC_tested": false,
+    "production_certified": false,
+    "github_private_r7_source_tested": false,
+    "source_files_published": false
+  },
+  "note": "Las 7 pruebas corregidas validan contratos vigentes con simulador de servidor; NO es certificacion de pago real."
+}
