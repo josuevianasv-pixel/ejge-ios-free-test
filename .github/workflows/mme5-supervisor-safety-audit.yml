@@ -1,0 +1,91 @@
+name: MME5 | Supervisor and Money Safety Audit
+run-name: Audit private MME5 supervisor shutdown (read-only)
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/mme5-supervisor-safety-audit.yml'
+      - 'momo-linux/standalone/supervisor-safety-audit.cjs'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: mme5-supervisor-audit-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  audit:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test the audit logic with synthetic non-money fixtures
+        run: |
+          node --check momo-linux/standalone/supervisor-safety-audit.cjs
+          if($LASTEXITCODE -ne 0){throw 'Audit JS syntax invalid'}
+          node momo-linux/standalone/supervisor-safety-audit.cjs --selftest
+          if($LASTEXITCODE -ne 0){throw 'Audit public selftests failed'}
+      - name: Obtain the REAL source privately in an ephemeral Windows workspace
+        env:
+          GH_TOKEN: ${{ secrets.MOMO_SOURCE_TOKEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:GH_TOKEN)){
+            throw 'SOURCE_REQUIRED: Private source token missing; real supervisor was NOT audited'
+          }
+          $target=Join-Path $env:RUNNER_TEMP 'MME5-PrivateSource'
+          $extracted=Join-Path $env:RUNNER_TEMP 'MME5-EphemeralAudit'
+          New-Item -ItemType Directory -Force $target,$extracted | Out-Null
+          gh release download 'mme5-bill-virtual-assets' --repo 'josuevianasv-pixel/game-capture-agent' --pattern 'MME5_AREA1_BILLETERO_VIRTUAL_DURABILIDAD_LAB_COMPLETO.zip' --dir $target --clobber 2>&1 | Out-Null
+          if($LASTEXITCODE -ne 0){throw 'SOURCE_REQUIRED: Private release unavailable'}
+          $zip=Get-ChildItem -LiteralPath $target -Filter '*.zip' -File|Select-Object -First 1
+          if(-not $zip){throw 'SOURCE_REQUIRED: Private archive absent'}
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $extracted -Force
+          $server=Get-ChildItem -LiteralPath $extracted -Recurse -File -Filter server-local.ps1|Select-Object -First 1
+          if(-not $server){throw 'SOURCE_REQUIRED: Original local server missing'}
+          $root=$server.Directory.FullName
+          foreach($f in @('span.ps1','PRODUCTION-LAUNCHER.ps1','CERRAR-JUEGOS-ANTERIORES.ps1')){
+            if(-not(Test-Path (Join-Path $root $f))){throw 'SOURCE_REQUIRED: Private supervisor component absent'}
+          }
+          $root|Set-Content (Join-Path $env:RUNNER_TEMP 'mme5-audit-root.txt')
+          Write-Host 'SOURCE_LOADED_EPHEMERALLY: no game files published'
+      - name: Audit real shutdown behavior and existing monetary safety guards
+        run: |
+          $root=(Get-Content (Join-Path $env:RUNNER_TEMP 'mme5-audit-root.txt') -Raw).Trim()
+          node momo-linux/standalone/supervisor-safety-audit.cjs $root
+          if($LASTEXITCODE -ne 0){throw 'Audit incomplete or safety controls missing'}
+      - name: Publish only sanitized risk summary
+        if: always()
+        run: |
+          '### MME5 | Supervisor shutdown and monetary safety audit' >> $env:GITHUB_STEP_SUMMARY
+          $report=Join-Path $env:RUNNER_TEMP 'mme5-supervisor-audit.json'
+          if(Test-Path $report){
+            $r=Get-Content $report -Raw|ConvertFrom-Json
+            "- Scope: $($r.auditType); no physical installation or money transactions" >> $env:GITHUB_STEP_SUMMARY
+            "- High-risk source patterns: $($r.confirmedHighRiskPatterns)" >> $env:GITHUB_STEP_SUMMARY
+            "- Medium-risk source patterns: $($r.confirmedMediumRiskPatterns)" >> $env:GITHUB_STEP_SUMMARY
+            "- Existing watchdog avoids killing live process: $($r.watchdogAvoidsKillingLiveServer)" >> $env:GITHUB_STEP_SUMMARY
+            "- Durable receipt logic present: $($r.serverHasDurableReceiptLogic)" >> $env:GITHUB_STEP_SUMMARY
+            foreach($x in $r.findings){
+              if($x.present) {
+                "- Risk [$($x.severity)] $($x.id) — $($x.why)" >> $env:GITHUB_STEP_SUMMARY
+              }
+            }
+            "- Conclusion: $($r.status); MUST NOT be treated as production certification" >> $env:GITHUB_STEP_SUMMARY
+          } else {
+            '- INCOMPLETE: no real private source audit finished' >> $env:GITHUB_STEP_SUMMARY
+          }
+      - name: Upload only non-sensitive findings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mme5-supervisor-risk-summary
+          path: ${{ runner.temp }}/mme5-supervisor-audit.json
+          if-no-files-found: ignore
+          retention-days: 5
