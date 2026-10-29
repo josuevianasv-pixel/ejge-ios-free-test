@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="es">
+<meta charset="utf-8">
+<title>MME5 Topper - Synthetic Public Browser Test</title>
+<style>
+body{font-family:sans-serif;background:#171717;color:#eee;margin:20px}canvas,video{max-width:100%;display:block;border:1px solid #888;margin:8px 0}small{color:#aaa}
+</style>
+<h1>MME5 Topper: prueba pública sintética</h1>
+<p>Contenido geométrico generado localmente. No contiene recursos ni código original del juego.</p>
+<h2>Pantalla inferior simulada</h2><canvas id="lower" width="640" height="360"></canvas>
+<h2>Topper simulado</h2><video id="upper" width="640" height="360" autoplay muted playsinline></video>
+<p id="status">Prueba en curso...</p><small id="outcome"></small>
+<script>
+(async()=>{
+  const output=document.getElementById('outcome');
+  const status=document.getElementById('status');
+  const lower=document.getElementById('lower');
+  const upper=document.getElementById('upper');
+  const ctx=lower.getContext('2d');
+  const state={bottomFrames:0,upperFrames:0,maintenanceChecks:0,videoReady:false,fallback:false};
+  let active=true, timer=null, stream=null, started=performance.now(), videoFrames=0;
+  const paint=()=>{
+    if(!active)return;
+    state.bottomFrames++;
+    let x=(state.bottomFrames*4)%lower.width;
+    ctx.fillStyle='#161616';ctx.fillRect(0,0,640,360);
+    ctx.fillStyle='#fcbf49';ctx.fillRect(x,100,90,90);
+    ctx.font='32px sans-serif';ctx.fillStyle='#fff';ctx.fillText('SINTÉTICO',25,45);
+    requestAnimationFrame(paint);
+  };
+  requestAnimationFrame(paint);
+  if(!lower.captureStream)throw new Error('CAPTURE_STREAM_UNSUPPORTED');
+  stream=lower.captureStream(18);
+  if(!stream.getVideoTracks().length)throw new Error('NO_CAPTURE_TRACK');
+  upper.srcObject=stream;
+  upper.muted=true;
+  if(upper.requestVideoFrameCallback){
+    const onVideoFrame=()=>{if(active && !state.fallback){videoFrames++;upper.requestVideoFrameCallback(onVideoFrame);}};
+    upper.requestVideoFrameCallback(onVideoFrame);
+  }
+  await upper.play();
+  // Periodic checks only: not responsible for rendering the stream itself.
+  timer=setInterval(()=>{if(!state.fallback)state.maintenanceChecks++;},250);
+  const limit=performance.now()+5000;
+  while(upper.readyState<2 && performance.now()<limit){await new Promise(r=>setTimeout(r,80));}
+  state.videoReady=upper.readyState>=2;
+  await new Promise(r=>setTimeout(r,1500));
+  state.upperFrames=videoFrames;
+  const before=state.bottomFrames;
+  // Simulate loss of the video stream; canvas drawing must continue.
+  for(const track of stream.getTracks())track.stop();
+  upper.srcObject=null;
+  state.fallback=true;
+  clearInterval(timer);
+  await new Promise(r=>setTimeout(r,260));
+  state.bottomContinued=state.bottomFrames>before;
+  state.elapsedMs=Math.round(performance.now()-started);
+  state.checksPerSecond=Number((1000*state.maintenanceChecks/state.elapsedMs).toFixed(2));
+  // No assumption about exact fps on virtualized GitHub hardware.
+  state.pass=state.videoReady && state.bottomContinued && state.fallback && state.maintenanceChecks>=2 && state.maintenanceChecks<=10;
+  state.note='This is a synthetic browser contract test; it does not execute MME5 nor test Intel HD 4600 performance.';
+  active=false;
+  status.textContent=state.pass?'PASS: reproducción, mantenimiento reducido y respaldo':'FAIL: revisar diagnóstico';
+  output.textContent=JSON.stringify(state);
+  window.__topperLabResult=state;
+})().catch(err=>{
+  const state={pass:false,error:String(err),note:'Synthetic public test only; game not loaded.'};
+  document.getElementById('status').textContent='FAIL';
+  document.getElementById('outcome').textContent=JSON.stringify(state);
+  window.__topperLabResult=state;
+});
+</script>
+</html>
