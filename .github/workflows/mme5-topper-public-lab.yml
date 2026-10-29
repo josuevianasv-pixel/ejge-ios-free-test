@@ -1,0 +1,42 @@
+name: MME5 | Topper Public Synthetic Browser QA
+run-name: "Mo Mo Mummy Topper - public synthetic test (NOT game)"
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/mme5-topper-public-lab.yml'
+      - 'momo-linux/topper-public/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  topper-synthetic:
+    name: "Chromium + synthetic two-screen topper"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install browser test dependency (lab only)
+        run: |
+          npm install --no-audit --no-fund --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Verify syntax and run real browser with synthetic graphics
+        run: |
+          node --check momo-linux/topper-public/run-browser.cjs
+          node momo-linux/topper-public/run-browser.cjs
+      - name: Explain test boundaries
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### MME5 Topper public QA"
+            echo "- Synthetic geometric video/canvas test only; no original MME5 code, graphics, sounds, licenses or money data."
+            echo "- Tests canvas.captureStream(18), a 250ms maintenance task, and a stream-loss fallback while the lower display continues."
+            echo "- A passing run DOES NOT certify the real Topper R1 package, Intel HD 4600, 60 FPS, Microsoft Edge, Windows LTSC or dual physical displays."
+            echo "- The actual complete game stays private and is NOT uploaded to this public repository."
+          } >> "$GITHUB_STEP_SUMMARY"
