@@ -21,6 +21,12 @@ const rnd=n=>Math.round(n*1000)/1000;
     const page=await browser.newPage({viewport:{width:1350,height:900}});
     await page.goto('about:blank');
     result=await page.evaluate(()=>{
+      // The browser evaluation runs in an isolated JS world: keep helpers here.
+      const med=values=>{
+        const a=values.slice().sort((x,y)=>x-y);
+        return a.length%2?a[(a.length-1)/2]:(a[a.length/2-1]+a[a.length/2])/2;
+      };
+      const rnd=n=>Math.round(n*1000)/1000;
       const SW=2048,SH=1536,W=840,H=525;
       const source=document.createElement('canvas');source.width=SW;source.height=SH;
       const src=source.getContext('2d',{alpha:false});
