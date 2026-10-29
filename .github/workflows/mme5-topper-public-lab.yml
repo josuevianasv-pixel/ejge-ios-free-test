@@ -33,11 +33,16 @@ jobs:
         run: |
           node --check momo-linux/topper-public/benchmark-topper.cjs
           node momo-linux/topper-public/benchmark-topper.cjs
+      - name: Measure R2 Canvas2D fallback render change on SAME runner
+        run: |
+          node --check momo-linux/topper-public/benchmark-render-r2.cjs
+          node momo-linux/topper-public/benchmark-render-r2.cjs
       - name: Publish synthetic comparison in job summary
         if: always()
         shell: bash
         run: |
           if [ -f reports/topper-benchmark.md ]; then cat reports/topper-benchmark.md >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -f reports/topper-render-r2.md ]; then cat reports/topper-render-r2.md >> "$GITHUB_STEP_SUMMARY"; fi
       - name: Upload sanitized A/B metrics only
         if: always()
         uses: actions/upload-artifact@v4
@@ -46,6 +51,8 @@ jobs:
           path: |
             reports/topper-benchmark.json
             reports/topper-benchmark.md
+            reports/topper-render-r2.json
+            reports/topper-render-r2.md
           if-no-files-found: warn
           retention-days: 7
       - name: Explain test boundaries
@@ -56,6 +63,6 @@ jobs:
             echo "### MME5 Topper public QA"
             echo "- Synthetic geometric video/canvas test only; no original MME5 code, graphics, sounds, licenses or money data."
             echo "- Tests canvas.captureStream(18), a 250ms maintenance task, and a stream-loss fallback while the lower display continues."
-            echo "- A passing run DOES NOT certify the real Topper R1 package, Intel HD 4600, 60 FPS, Microsoft Edge, Windows LTSC or dual physical displays."
+            echo "- A passing run DOES NOT certify the real Topper R1 or R2 package, Intel HD 4600, 60 FPS, Microsoft Edge, Windows LTSC or dual physical displays."
             echo "- The actual complete game stays private and is NOT uploaded to this public repository."
           } >> "$GITHUB_STEP_SUMMARY"
