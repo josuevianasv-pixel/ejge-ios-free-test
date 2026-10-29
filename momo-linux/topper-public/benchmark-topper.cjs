@@ -49,7 +49,7 @@ async function main(){
       const taskMs=taskStart!==null&&taskEnd!==null?(taskEnd-taskStart)*1000:null;
       const elapsedSec=data.elapsedMs/1000;
       const result={
-        variant,pass:data.pass===true&&errors.length===0,
+        variant,pass:data.videoReady===true&&data.bottomContinued===true&&data.fallback===true&&data.maintenanceChecks>=2&&errors.length===0,
         elapsedMs:data.elapsedMs,
         lowerFps:round(data.bottomFrames/elapsedSec),
         topperVideoFps:round(data.upperFrames/elapsedSec),
